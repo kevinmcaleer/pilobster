@@ -58,25 +58,43 @@ class Agent:
             return f"Sorry, I had trouble thinking about that. Error: {e}"
 
     @staticmethod
-    def parse_cron_blocks(text: str) -> List[dict]:
+    def parse_cron_blocks(text: str) -> tuple[List[dict], List[str]]:
         """Extract ```cron ... ``` blocks from the response.
 
         Expected format:
             ```cron
             {"schedule": "0 9 * * *", "task": "...", "message": "..."}
             ```
+
+        Returns: (valid_jobs, errors)
         """
         pattern = r"```cron\s*\n(.*?)\n\s*```"
         matches = re.findall(pattern, text, re.DOTALL)
         jobs = []
+        errors = []
+
         for match in matches:
             try:
                 job = json.loads(match.strip())
-                if all(k in job for k in ("schedule", "task", "message")):
-                    jobs.append(job)
-            except json.JSONDecodeError:
+
+                # Validate required fields
+                missing = [k for k in ("schedule", "task", "message") if k not in job]
+                if missing:
+                    errors.append(f"Missing required fields: {', '.join(missing)}")
+                    continue
+
+                # Validate cron format (should have 5 fields)
+                schedule_parts = job["schedule"].split()
+                if len(schedule_parts) != 5:
+                    errors.append(f"Invalid cron format '{job['schedule']}' - needs 5 fields (minute hour day month weekday)")
+                    continue
+
+                jobs.append(job)
+            except json.JSONDecodeError as e:
                 logger.warning(f"Failed to parse cron block: {match}")
-        return jobs
+                errors.append(f"Invalid JSON in cron block")
+
+        return jobs, errors
 
     @staticmethod
     def parse_save_blocks(text: str) -> List[dict]:

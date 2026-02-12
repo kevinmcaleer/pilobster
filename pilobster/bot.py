@@ -243,7 +243,14 @@ class TelegramBot:
         response = await self.agent.chat(history)
 
         # Parse for cron jobs
-        cron_jobs = self.agent.parse_cron_blocks(response)
+        cron_jobs, cron_errors = self.agent.parse_cron_blocks(response)
+
+        # Show validation errors if any
+        if cron_errors:
+            error_msg = "⚠️ Cron job errors:\n" + "\n".join(f"• {e}" for e in cron_errors)
+            await update.message.reply_text(error_msg)
+
+        # Create valid jobs
         for job in cron_jobs:
             job_id = await self.scheduler.add_job(
                 user_id, job["schedule"], job["task"], job["message"]
