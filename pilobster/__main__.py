@@ -11,8 +11,9 @@ from .agent import Agent
 from .scheduler import Scheduler
 from .workspace import Workspace
 
-# Single user mode - all conversations use this ID
-PILOBSTER_USER_ID = 1
+# Single user mode - but Telegram and TUI have separate conversations
+PILOBSTER_USER_ID = 1  # Telegram user ID
+PILOBSTER_TUI_USER_ID = 2  # TUI user ID
 
 # Logger will be configured in main() based on mode
 logger = logging.getLogger("pilobster")
@@ -94,7 +95,7 @@ async def run_tui(config, agent, memory, scheduler, workspace, set_callback=True
 
     logger.info("🦞 Starting Terminal UI...")
 
-    app = PiLobsterTUI(config, agent, memory, scheduler, workspace, PILOBSTER_USER_ID)
+    app = PiLobsterTUI(config, agent, memory, scheduler, workspace, PILOBSTER_TUI_USER_ID)
 
     # Set scheduler callback for TUI only if requested
     if set_callback:
@@ -221,7 +222,7 @@ async def main():
 
         # Create bot and tui instances
         bot = TelegramBot(config, agent, memory, scheduler, workspace)
-        tui_app = PiLobsterTUI(config, agent, memory, scheduler, workspace, PILOBSTER_USER_ID)
+        tui_app = PiLobsterTUI(config, agent, memory, scheduler, workspace, PILOBSTER_TUI_USER_ID)
 
         # Set up both callbacks for scheduler
         scheduler.set_send_callback(bot._send_message)
