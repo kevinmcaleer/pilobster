@@ -4,7 +4,7 @@ import re
 import json
 import logging
 from typing import List
-from ollama import AsyncClient
+import httpx
 
 from .config import OllamaConfig
 
@@ -17,33 +17,32 @@ class Agent:
     def __init__(self, config: OllamaConfig, system_prompt: str):
         self.config = config
         self.system_prompt = system_prompt
-        self.client = AsyncClient(host=config.host)
+        self.http_client = httpx.AsyncClient(timeout=120.0)
 
     async def warm_up(self):
         """Pre-load the model so it's ready for fast responses."""
         logger.info(f"Warming up model: {self.config.model}")
         try:
-            # Try with full parameters first (standard Ollama)
-            await self.client.chat(
-                model=self.config.model,
-                messages=[{"role": "user", "content": "hi"}],
-                keep_alive=self.config.keep_alive,
-                options={"num_ctx": self.config.context_length},
-            )
+            # Send a simple warm-up request
+            await self._chat_request([{"role": "user", "content": "hi"}])
             logger.info("Model loaded and ready")
         except Exception as e:
-            # Fallback for non-standard Ollama implementations (e.g., Hailo AI HAT+2)
-            logger.warning(f"Standard warm-up failed, trying minimal request: {e}")
-            try:
-                await self.client.chat(
-                    model=self.config.model,
-                    messages=[{"role": "user", "content": "hi"}],
-                )
-                logger.info("Model loaded and ready (minimal mode)")
-            except Exception as e2:
-                logger.error(f"Failed to warm up model: {e2}")
-                logger.warning("Continuing without warm-up - first request may be slow")
-                # Don't raise - allow bot to continue
+            logger.warning(f"Warm-up failed, continuing anyway: {e}")
+            # Don't raise - allow bot to continue
+
+    async def _chat_request(self, messages: List[dict]) -> str:
+        """Low-level chat request using httpx for better Hailo compatibility."""
+        url = f"{self.config.host}/api/chat"
+        payload = {
+            "model": self.config.model,
+            "messages": messages,
+            "stream": False,  # Non-streaming for simplicity
+        }
+
+        response = await self.http_client.post(url, json=payload)
+        response.raise_for_status()
+        data = response.json()
+        return data["message"]["content"]
 
     async def chat(self, messages: List[dict]) -> str:
         """Send a conversation to the model and return the response text."""
@@ -53,29 +52,10 @@ class Agent:
         ]
 
         try:
-            # Try with full parameters first
-            response = await self.client.chat(
-                model=self.config.model,
-                messages=full_messages,
-                keep_alive=self.config.keep_alive,
-                options={
-                    "num_ctx": self.config.context_length,
-                    "temperature": self.config.temperature,
-                },
-            )
-            return response["message"]["content"]
+            return await self._chat_request(full_messages)
         except Exception as e:
-            # Fallback for non-standard implementations
-            logger.warning(f"Standard chat failed, trying minimal request: {e}")
-            try:
-                response = await self.client.chat(
-                    model=self.config.model,
-                    messages=full_messages,
-                )
-                return response["message"]["content"]
-            except Exception as e2:
-                logger.error(f"Ollama chat error: {e2}")
-                return f"Sorry, I had trouble thinking about that. Error: {e2}"
+            logger.error(f"Ollama chat error: {e}")
+            return f"Sorry, I had trouble thinking about that. Error: {e}"
 
     @staticmethod
     def parse_cron_blocks(text: str) -> List[dict]:
