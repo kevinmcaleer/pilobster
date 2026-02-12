@@ -75,6 +75,60 @@ memory:
   database: "./pilobster.db"
 ```
 
+## Customizing Your Bot's Personality
+
+PiLobster's personality and instructions are defined in `soul.md` — think of it as your bot's soul! 🦞
+
+### Editing the Soul
+
+```bash
+nano soul.md
+```
+
+The `soul.md` file contains:
+- Your bot's personality traits
+- Instructions for special abilities (cron jobs, code generation)
+- Examples that help the model understand what to do
+- Behavioral guidelines
+
+### What You Can Change
+
+**Personality:**
+```markdown
+You are PiLobster, a helpful AI assistant running locally on a Raspberry Pi.
+You are friendly, concise, and practical.
+```
+→ Make it formal, casual, pirate-themed, whatever you want!
+
+**Special Instructions:**
+- Modify how the bot responds to scheduling requests
+- Change the format for code generation
+- Add new capabilities or constraints
+- Adjust verbosity and response style
+
+### Tips for Small Models
+
+If you're using a small model (like 1.5B-3B parameters):
+- ✅ **Be very explicit** - Small models need clear, concrete examples
+- ✅ **Show exact formats** - Include complete JSON/code examples
+- ✅ **Keep it concise** - Long prompts can confuse small models
+- ✅ **Test iteratively** - Try different phrasings if the model doesn't follow instructions
+
+For larger models (7B+):
+- More flexible with natural language instructions
+- Can handle more complex personality traits
+- Better at following nuanced guidelines
+
+### Apply Changes
+
+After editing `soul.md`:
+```bash
+# Restart PiLobster to load the new soul
+python -m pilobster
+```
+
+The bot will reload `soul.md` on every restart, so you can experiment and iterate!
+
 ## Architecture
 
 ```
@@ -90,10 +144,17 @@ memory:
                     └──────────────┘
 ``` 
 
-## Commands In Telegram, you can use these commands: - `/start` — Welcome message - `/status` — Show system status (model, uptime, jobs)
+## Commands
+
+In Telegram, you can use these commands:
+
+- `/start` — Welcome message
+- `/status` — Show system status (model, uptime, jobs)
 - `/jobs` — List scheduled cron jobs
 - `/cancel <id>` — Cancel a scheduled job
 - `/workspace` — List files in the workspace
+- `/save <filename>` — Manually save the last code block
+- `/clear` — Clear chat history
 - `/help` — Show available commands
 
 Or just chat naturally:
