@@ -71,7 +71,15 @@ def load_config(path: str = "config.yaml") -> Config:
         config.scheduler = SchedulerConfig(**raw["scheduler"])
     if "memory" in raw:
         config.memory = MemoryConfig(**raw["memory"])
+
+    # Load system prompt from soul.md or config.yaml (fallback)
     if "system_prompt" in raw:
         config.system_prompt = raw["system_prompt"]
+    else:
+        # Try to load from soul.md
+        soul_path = Path("soul.md")
+        if soul_path.exists():
+            with open(soul_path) as f:
+                config.system_prompt = f.read()
 
     return config
