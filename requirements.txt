@@ -3,3 +3,4 @@ ollama==0.4.7
 apscheduler==3.10.4
 pyyaml==6.0.2
 aiosqlite==0.20.0
+textual==0.86.1

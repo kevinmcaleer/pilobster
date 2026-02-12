@@ -9,17 +9,19 @@ Designed to run on a Raspberry Pi 5 with the Hailo AI HAT+ 2.
 ## Features
 
 - **Telegram Chat** — Talk to your local LLM from anywhere via Telegram
+- **Terminal UI (TUI)** — Claude-like chat interface directly in your terminal
 - **Cron Scheduler** — Create recurring tasks via natural conversation ("remind me every morning at 8am to check the weather")
 - **Code Workspace** — Ask it to generate code and it saves files to a local workspace folder
 - **Persistent Memory** — Conversation history and task memory stored locally in SQLite
 - **Keep-Alive** — Model stays loaded in memory (no cold-start delays)
+- **Multi-Mode** — Run Telegram bot, TUI, or both simultaneously
 
 ## Requirements
 
 - Python 3.11+
 - Ollama installed and running
-- A Telegram Bot Token (from [@BotFather](https://t.me/botfather))
 - A model pulled in Ollama (e.g. `ollama pull qwen2.5-instruct:1.5b`)
+- A Telegram Bot Token (from [@BotFather](https://t.me/botfather)) — **Optional:** only needed for Telegram mode
 
 ## Quick Start
 
@@ -39,9 +41,52 @@ pip install -r requirements.txt
 cp config.example.yaml config.yaml
 nano config.yaml  # Add your Telegram bot token and model name
 
-# Run it
+# Run it (Telegram mode - default)
 python -m pilobster
+
+# Or run in Terminal UI mode (no Telegram needed!)
+python -m pilobster --mode tui
 ```
+
+## Using the Terminal UI
+
+PiLobster includes a beautiful terminal UI powered by Textual, giving you a Claude-like chat experience directly in your terminal — no Telegram required!
+
+### Running in TUI Mode
+
+```bash
+# Terminal UI only
+python -m pilobster --mode tui
+
+# With custom user ID (for separate conversation histories)
+python -m pilobster --mode tui --user-id 42
+
+# Run both Telegram and TUI simultaneously
+python -m pilobster --mode both
+```
+
+### TUI Keyboard Shortcuts
+
+- **Ctrl+C** — Quit
+- **Ctrl+L** — Clear chat history
+- **Ctrl+S** — Show system status (model, jobs, files)
+- **Enter** — Send message
+
+### TUI Features
+
+The Terminal UI supports all the same features as the Telegram bot:
+- ✅ Natural conversation with markdown formatting
+- ✅ Code generation with syntax highlighting
+- ✅ File saving to workspace
+- ✅ Cron job scheduling
+- ✅ Persistent conversation history
+- ✅ Real-time cron job notifications
+
+### When to Use Which Mode
+
+- **Telegram (`--mode telegram`)**: Access your AI from anywhere, on your phone
+- **TUI (`--mode tui`)**: Direct terminal access when working on the same machine
+- **Both (`--mode both`)**: Run both interfaces simultaneously
 
 ## Getting a Telegram Bot Token
 
