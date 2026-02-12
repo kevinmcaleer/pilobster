@@ -23,7 +23,7 @@ class Agent:
         """Pre-load the model so it's ready for fast responses."""
         logger.info(f"Warming up model: {self.config.model}")
         try:
-            # Send a tiny request with keep_alive to load the model
+            # Try with full parameters first (standard Ollama)
             await self.client.chat(
                 model=self.config.model,
                 messages=[{"role": "user", "content": "hi"}],
@@ -32,8 +32,18 @@ class Agent:
             )
             logger.info("Model loaded and ready")
         except Exception as e:
-            logger.error(f"Failed to warm up model: {e}")
-            raise
+            # Fallback for non-standard Ollama implementations (e.g., Hailo AI HAT+2)
+            logger.warning(f"Standard warm-up failed, trying minimal request: {e}")
+            try:
+                await self.client.chat(
+                    model=self.config.model,
+                    messages=[{"role": "user", "content": "hi"}],
+                )
+                logger.info("Model loaded and ready (minimal mode)")
+            except Exception as e2:
+                logger.error(f"Failed to warm up model: {e2}")
+                logger.warning("Continuing without warm-up - first request may be slow")
+                # Don't raise - allow bot to continue
 
     async def chat(self, messages: List[dict]) -> str:
         """Send a conversation to the model and return the response text."""
@@ -43,6 +53,7 @@ class Agent:
         ]
 
         try:
+            # Try with full parameters first
             response = await self.client.chat(
                 model=self.config.model,
                 messages=full_messages,
@@ -54,8 +65,17 @@ class Agent:
             )
             return response["message"]["content"]
         except Exception as e:
-            logger.error(f"Ollama chat error: {e}")
-            return f"Sorry, I had trouble thinking about that. Error: {e}"
+            # Fallback for non-standard implementations
+            logger.warning(f"Standard chat failed, trying minimal request: {e}")
+            try:
+                response = await self.client.chat(
+                    model=self.config.model,
+                    messages=full_messages,
+                )
+                return response["message"]["content"]
+            except Exception as e2:
+                logger.error(f"Ollama chat error: {e2}")
+                return f"Sorry, I had trouble thinking about that. Error: {e2}"
 
     @staticmethod
     def parse_cron_blocks(text: str) -> List[dict]:
