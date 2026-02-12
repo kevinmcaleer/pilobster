@@ -171,6 +171,12 @@ class PiLobsterTUI(App):
         elif cmd == "/save":
             await self.cmd_save(args)
 
+        elif cmd == "/memory":
+            await self.cmd_memory()
+
+        elif cmd == "/forget":
+            await self.cmd_forget()
+
         elif cmd == "/help":
             help_text = """**Available Commands:**
 
@@ -182,6 +188,8 @@ class PiLobsterTUI(App):
 - `/cancel <id>` — Cancel a cron job
 - `/workspace` — List workspace files
 - `/save <filename>` — Save last code block
+- `/memory` — View saved memories
+- `/forget` — Clear all memories
 - `/help` — Show this help message
 
 **Keyboard Shortcuts:**
@@ -253,6 +261,19 @@ class PiLobsterTUI(App):
                 )
                 await self.display_status_message(
                     f"Saved {filepath.name} to workspace", emoji="💾"
+                )
+
+            # Parse for memory blocks
+            memory_blocks = self.agent.parse_memory_blocks(response)
+            for fact in memory_blocks:
+                if await self.agent.save_to_memory(fact):
+                    await self.display_status_message(f"Remembered: {fact}", emoji="🧠")
+
+            # Check if memory is getting too large
+            is_large, line_count = self.agent.check_memory_size()
+            if is_large:
+                await self.display_status_message(
+                    f"Memory file is large ({line_count} lines). Use /forget to clear.", emoji="⚠️"
                 )
 
             # Display AI response
@@ -676,3 +697,37 @@ The prompt will be sent to me when the job triggers.
                     await self.telegram_callback(message)
                 except Exception as e:
                     logger.error(f"Failed to send message to Telegram: {e}")
+
+    async def cmd_memory(self):
+        """Display current memory."""
+        if self.agent.memory_content:
+            is_large, line_count = self.agent.check_memory_size()
+            header = f"**🧠 My Memory ({line_count} lines)**\n\n"
+            if is_large:
+                header += "⚠️ *Memory is getting large!*\n\n"
+            message = header + self.agent.memory_content
+        else:
+            message = "**🧠 My Memory**\n\nNo memories saved yet. Tell me something about yourself!"
+
+        await self.display_message("assistant", message)
+        # Send to Telegram
+        if self.telegram_callback:
+            try:
+                await self.telegram_callback(message)
+            except Exception as e:
+                logger.error(f"Failed to send message to Telegram: {e}")
+
+    async def cmd_forget(self):
+        """Clear all memory."""
+        if self.agent.clear_memory():
+            message = "🧹 All memories have been forgotten."
+        else:
+            message = "❌ Failed to clear memory."
+
+        await self.display_message("assistant", message)
+        # Send to Telegram
+        if self.telegram_callback:
+            try:
+                await self.telegram_callback(message)
+            except Exception as e:
+                logger.error(f"Failed to send message to Telegram: {e}")

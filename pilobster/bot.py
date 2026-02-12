@@ -137,6 +137,15 @@ class TelegramBot:
                 parse_mode="Markdown",
             )
 
+        # Parse for memory blocks
+        memory_blocks = self.agent.parse_memory_blocks(response)
+        for fact in memory_blocks:
+            if await self.agent.save_to_memory(fact):
+                await self.app.bot.send_message(
+                    chat_id=self.chat_id,
+                    text=f"🧠 Remembered: {fact}"
+                )
+
         # Send the cleaned response
         clean = self.agent.clean_response(response)
         if clean:
@@ -371,6 +380,8 @@ class TelegramBot:
             "/cancel <id> — Cancel a task\n"
             "/workspace — List generated files\n"
             "/save <filename> — Save last code block\n"
+            "/memory — View saved memories\n"
+            "/forget — Clear all memories\n"
             "/clear — Clear chat history\n"
             "/help — This message\n\n"
             "*Natural Language:*\n"
@@ -379,6 +390,30 @@ class TelegramBot:
             "• Or just chat!"
         )
         await update.message.reply_text(message, parse_mode="Markdown")
+        await self._send_to_tui(message, is_user=False)
+
+    async def cmd_memory(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /memory command — show saved memories."""
+        if self.agent.memory_content:
+            is_large, line_count = self.agent.check_memory_size()
+            header = f"🧠 *My Memory ({line_count} lines)*\n\n"
+            if is_large:
+                header += "⚠️ _Memory is getting large!_\n\n"
+            message = header + self.agent.memory_content
+        else:
+            message = "🧠 *My Memory*\n\nNo memories saved yet. Tell me something about yourself!"
+
+        await update.message.reply_text(message, parse_mode="Markdown")
+        await self._send_to_tui(message, is_user=False)
+
+    async def cmd_forget(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /forget command — clear all memories."""
+        if self.agent.clear_memory():
+            message = "🧹 All memories have been forgotten."
+        else:
+            message = "❌ Failed to clear memory."
+
+        await update.message.reply_text(message)
         await self._send_to_tui(message, is_user=False)
 
     # --- Message Handler ---
@@ -438,6 +473,21 @@ class TelegramBot:
                 parse_mode="Markdown",
             )
 
+        # Parse for memory blocks
+        memory_blocks = self.agent.parse_memory_blocks(response)
+        for fact in memory_blocks:
+            if await self.agent.save_to_memory(fact):
+                await update.message.reply_text(f"🧠 Remembered: {fact}")
+
+        # Check if memory is getting too large
+        is_large, line_count = self.agent.check_memory_size()
+        if is_large:
+            await update.message.reply_text(
+                f"⚠️ Your memory file is getting large ({line_count} lines).\n"
+                f"Consider using `/forget` to clear old memories.",
+                parse_mode="Markdown",
+            )
+
         # Send the cleaned response
         clean = self.agent.clean_response(response)
         if clean:
@@ -462,6 +512,8 @@ class TelegramBot:
             BotCommand("cancel", "Cancel a scheduled task"),
             BotCommand("workspace", "List generated files"),
             BotCommand("save", "Save last code block"),
+            BotCommand("memory", "View saved memories"),
+            BotCommand("forget", "Clear all memories"),
             BotCommand("clear", "Clear chat history"),
             BotCommand("help", "Show commands"),
         ]
@@ -485,6 +537,8 @@ class TelegramBot:
         self.app.add_handler(CommandHandler("cancel", self.cmd_cancel))
         self.app.add_handler(CommandHandler("workspace", self.cmd_workspace))
         self.app.add_handler(CommandHandler("save", self.cmd_save))
+        self.app.add_handler(CommandHandler("memory", self.cmd_memory))
+        self.app.add_handler(CommandHandler("forget", self.cmd_forget))
         self.app.add_handler(CommandHandler("clear", self.cmd_clear))
         self.app.add_handler(CommandHandler("help", self.cmd_help))
 

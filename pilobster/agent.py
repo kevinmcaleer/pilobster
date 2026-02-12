@@ -4,11 +4,16 @@ import re
 import json
 import logging
 from typing import List
+from pathlib import Path
 import httpx
 
 from .config import OllamaConfig
 
 logger = logging.getLogger("pilobster.agent")
+
+# Memory file settings
+MEMORY_FILE = Path("memory.md")
+MAX_MEMORY_LINES = 100  # Warn if memory exceeds this many lines
 
 
 class Agent:
@@ -16,8 +21,79 @@ class Agent:
 
     def __init__(self, config: OllamaConfig, system_prompt: str):
         self.config = config
-        self.system_prompt = system_prompt
+        self.base_prompt = system_prompt
+        self.memory_content = self._load_memory()
+        self.system_prompt = self._build_full_prompt()
         self.http_client = httpx.AsyncClient(timeout=120.0)
+
+    def _load_memory(self) -> str:
+        """Load memory.md file if it exists."""
+        if MEMORY_FILE.exists():
+            try:
+                content = MEMORY_FILE.read_text(encoding="utf-8").strip()
+                if content:
+                    logger.info(f"Loaded {len(content.splitlines())} lines from memory.md")
+                    return content
+            except Exception as e:
+                logger.warning(f"Failed to load memory.md: {e}")
+        return ""
+
+    def _build_full_prompt(self) -> str:
+        """Build the full system prompt including memory."""
+        if self.memory_content:
+            return f"{self.base_prompt}\n\n## Personal Memory\nThese are important facts to remember about the user:\n{self.memory_content}"
+        return self.base_prompt
+
+    def check_memory_size(self) -> tuple[bool, int]:
+        """Check if memory is getting too large.
+
+        Returns: (is_large, line_count)
+        """
+        lines = len(self.memory_content.splitlines()) if self.memory_content else 0
+        return lines > MAX_MEMORY_LINES, lines
+
+    async def save_to_memory(self, fact: str) -> bool:
+        """Append a fact to memory.md.
+
+        Returns True if saved successfully.
+        """
+        try:
+            # Check if fact already exists
+            if self.memory_content and fact.strip() in self.memory_content:
+                logger.debug(f"Fact already in memory: {fact}")
+                return False
+
+            # Append to file
+            with open(MEMORY_FILE, "a", encoding="utf-8") as f:
+                if MEMORY_FILE.stat().st_size > 0:
+                    f.write("\n")
+                f.write(f"- {fact.strip()}\n")
+
+            # Reload memory
+            self.memory_content = self._load_memory()
+            self.system_prompt = self._build_full_prompt()
+
+            logger.info(f"Saved to memory: {fact}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save memory: {e}")
+            return False
+
+    def clear_memory(self) -> bool:
+        """Clear all memory.
+
+        Returns True if cleared successfully.
+        """
+        try:
+            if MEMORY_FILE.exists():
+                MEMORY_FILE.unlink()
+            self.memory_content = ""
+            self.system_prompt = self._build_full_prompt()
+            logger.info("Memory cleared")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to clear memory: {e}")
+            return False
 
     async def warm_up(self):
         """Pre-load the model so it's ready for fast responses."""
@@ -119,6 +195,21 @@ class Agent:
         return [{"filename": m[0], "content": m[1]} for m in matches]
 
     @staticmethod
+    def parse_memory_blocks(text: str) -> List[str]:
+        """Extract ```memory ... ``` blocks from the response.
+
+        Expected format:
+            ```memory
+            User is a YouTuber
+            ```
+
+        Returns: List of facts to remember
+        """
+        pattern = r"```memory\s*\n(.*?)\n\s*```"
+        matches = re.findall(pattern, text, re.DOTALL)
+        return [m.strip() for m in matches if m.strip()]
+
+    @staticmethod
     def extract_code_blocks(text: str) -> List[dict]:
         """Extract all code blocks from text (```language ... ```).
 
@@ -133,7 +224,8 @@ class Agent:
 
     @staticmethod
     def clean_response(text: str) -> str:
-        """Remove cron and save blocks from the response for display."""
+        """Remove cron, save, and memory blocks from the response for display."""
         text = re.sub(r"```cron\s*\n.*?\n\s*```", "", text, flags=re.DOTALL)
         text = re.sub(r"```save:\S+\s*\n.*?\n\s*```", "", text, flags=re.DOTALL)
+        text = re.sub(r"```memory\s*\n.*?\n\s*```", "", text, flags=re.DOTALL)
         return text.strip()
