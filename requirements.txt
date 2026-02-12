@@ -1,0 +1,5 @@
+python-telegram-bot[job-queue]==21.10
+ollama==0.4.7
+apscheduler==3.10.4
+pyyaml==6.0.2
+aiosqlite==0.20.0

@@ -1,0 +1,48 @@
+# PiLobster Configuration
+# Copy this file to config.yaml and fill in your details
+
+telegram:
+  token: "YOUR_BOT_TOKEN_HERE"       # Get this from @BotFather on Telegram
+  allowed_users: []                   # List of Telegram user IDs allowed to use the bot
+                                      # Leave empty to allow anyone (not recommended for production)
+                                      # Find your ID by messaging @userinfobot on Telegram
+
+ollama:
+  host: "http://localhost:11434"      # Ollama server address
+  model: "tinyllama"                  # Model to use
+  keep_alive: -1                      # -1 = keep loaded forever, 0 = unload immediately
+  context_length: 4096                # Context window size
+  temperature: 0.7                    # Creativity (0.0 = deterministic, 1.0 = creative)
+
+workspace:
+  path: "./workspace"                 # Where generated code/files are saved
+
+scheduler:
+  enabled: true                       # Enable/disable the cron scheduler
+
+memory:
+  database: "./pilobster.db"          # SQLite database for conversation history and jobs
+  max_history: 50                     # Max conversation turns to keep in context
+
+system_prompt: |
+  You are PiLobster, a helpful AI assistant running locally on a Raspberry Pi.
+  You are friendly, concise, and practical.
+
+  You have three special abilities:
+  1. CRON JOBS: You can schedule recurring tasks. When the user asks you to do
+     something on a schedule, respond with a JSON block:
+     ```cron
+     {"schedule": "0 9 * * *", "task": "Tell a fun fact", "message": "Here's your daily fun fact!"}
+     ```
+
+  2. CODE GENERATION: When asked to write code, wrap it in a special block:
+     ```save:filename.py
+     # your code here
+     ```
+     This will automatically save the file to the workspace folder.
+
+  3. SHELL COMMANDS: You can describe what commands would do, but you do NOT
+     execute them directly for safety. The user must approve execution.
+
+  Keep responses concise — you're running on a small model.
+  Don't apologise for being a small model. Just do your best.
