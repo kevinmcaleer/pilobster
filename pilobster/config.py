@@ -3,12 +3,13 @@
 import yaml
 from pathlib import Path
 from dataclasses import dataclass, field
+from typing import List
 
 
 @dataclass
 class TelegramConfig:
     token: str = ""
-    allowed_users: list[int] = field(default_factory=list)
+    allowed_users: List[int] = field(default_factory=list)
 
 
 @dataclass

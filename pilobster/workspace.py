@@ -2,6 +2,7 @@
 
 import logging
 from pathlib import Path
+from typing import Optional, List
 
 from .memory import Memory
 
@@ -42,7 +43,7 @@ class Workspace:
         logger.info(f"Saved file: {filepath}")
         return filepath
 
-    def list_files(self) -> list[dict]:
+    def list_files(self) -> List[dict]:
         """List all files in the workspace."""
         files = []
         for item in sorted(self.path.iterdir()):
@@ -57,7 +58,7 @@ class Workspace:
                 )
         return files
 
-    def read_file(self, filename: str) -> str | None:
+    def read_file(self, filename: str) -> Optional[str]:
         """Read a file from the workspace."""
         safe_name = Path(filename).name
         filepath = self.path / safe_name

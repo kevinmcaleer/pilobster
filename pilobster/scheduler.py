@@ -1,6 +1,7 @@
 """Cron scheduler — runs recurring tasks via APScheduler."""
 
 import logging
+from typing import List
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
@@ -58,7 +59,7 @@ class Scheduler:
             logger.info(f"Cancelled cron job #{job_id}")
         return success
 
-    async def list_jobs(self, user_id: int) -> list[dict]:
+    async def list_jobs(self, user_id: int) -> List[dict]:
         """List all active cron jobs for a user."""
         return await self.memory.get_cron_jobs(user_id)
 

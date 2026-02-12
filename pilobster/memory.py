@@ -4,6 +4,7 @@ import aiosqlite
 import json
 from datetime import datetime
 from pathlib import Path
+from typing import Optional, List
 
 
 class Memory:
@@ -11,7 +12,7 @@ class Memory:
 
     def __init__(self, db_path: str = "./pilobster.db"):
         self.db_path = db_path
-        self.db: aiosqlite.Connection | None = None
+        self.db: Optional[aiosqlite.Connection] = None
 
     async def connect(self):
         """Initialise the database and create tables."""
@@ -59,7 +60,7 @@ class Memory:
         )
         await self.db.commit()
 
-    async def get_history(self, user_id: int, limit: int = 50) -> list[dict]:
+    async def get_history(self, user_id: int, limit: int = 50) -> List[dict]:
         """Retrieve recent conversation history for a user."""
         cursor = await self.db.execute(
             "SELECT role, content FROM conversations "
@@ -91,7 +92,7 @@ class Memory:
         await self.db.commit()
         return cursor.lastrowid
 
-    async def get_cron_jobs(self, user_id: int | None = None) -> list[dict]:
+    async def get_cron_jobs(self, user_id: Optional[int] = None) -> List[dict]:
         """Get all cron jobs, optionally filtered by user."""
         if user_id:
             cursor = await self.db.execute(
@@ -135,7 +136,7 @@ class Memory:
         )
         await self.db.commit()
 
-    async def get_workspace_files(self) -> list[dict]:
+    async def get_workspace_files(self) -> List[dict]:
         """List all files logged in the workspace."""
         cursor = await self.db.execute(
             "SELECT filename, description, created_at FROM workspace_files "

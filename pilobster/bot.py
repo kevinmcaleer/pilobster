@@ -1,6 +1,7 @@
 """Telegram bot — the user-facing interface for PiLobster."""
 
 import logging
+from typing import Optional
 from telegram import Update, BotCommand
 from telegram.ext import (
     Application,
@@ -35,7 +36,7 @@ class TelegramBot:
         self.memory = memory
         self.scheduler = scheduler
         self.workspace = workspace
-        self.app: Application | None = None
+        self.app: Optional[Application] = None
 
     def _is_allowed(self, user_id: int) -> bool:
         """Check if a user is allowed to use the bot."""
@@ -147,6 +148,52 @@ class TelegramBot:
         await self.memory.clear_history(update.effective_user.id)
         await update.message.reply_text("🧹 Conversation history cleared.")
 
+    async def cmd_save(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /save command — manually save code from last response."""
+        user_id = update.effective_user.id
+        if not self._is_allowed(user_id):
+            return
+
+        # Check if filename was provided
+        if not context.args:
+            await update.message.reply_text(
+                "Usage: `/save filename.py`\n"
+                "This will save the last code block from my response.",
+                parse_mode="Markdown",
+            )
+            return
+
+        filename = context.args[0]
+
+        # Get recent history to find the last assistant message
+        history = await self.memory.get_history(user_id, limit=10)
+
+        # Find the most recent assistant message with code
+        last_code = None
+        for msg in reversed(history):  # Start from most recent
+            if msg["role"] == "assistant":
+                code_blocks = self.agent.extract_code_blocks(msg["content"])
+                if code_blocks:
+                    last_code = code_blocks[0]["content"]
+                    break
+
+        if not last_code:
+            await update.message.reply_text(
+                "❌ No code blocks found in recent conversation. "
+                "Ask me to write some code first!"
+            )
+            return
+
+        # Save the code
+        try:
+            filepath = await self.workspace.save_file(filename, last_code)
+            await update.message.reply_text(
+                f"💾 Saved `{filepath.name}` to workspace",
+                parse_mode="Markdown",
+            )
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error saving file: {e}")
+
     async def cmd_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /help command."""
         if not self._is_allowed(update.effective_user.id):
@@ -159,6 +206,7 @@ class TelegramBot:
             "/jobs — List scheduled tasks\n"
             "/cancel <id> — Cancel a task\n"
             "/workspace — List generated files\n"
+            "/save <filename> — Save last code block\n"
             "/clear — Clear chat history\n"
             "/help — This message\n\n"
             "*Natural Language:*\n"
@@ -237,6 +285,7 @@ class TelegramBot:
             BotCommand("jobs", "List scheduled tasks"),
             BotCommand("cancel", "Cancel a scheduled task"),
             BotCommand("workspace", "List generated files"),
+            BotCommand("save", "Save last code block"),
             BotCommand("clear", "Clear chat history"),
             BotCommand("help", "Show commands"),
         ]
@@ -258,6 +307,7 @@ class TelegramBot:
         self.app.add_handler(CommandHandler("jobs", self.cmd_jobs))
         self.app.add_handler(CommandHandler("cancel", self.cmd_cancel))
         self.app.add_handler(CommandHandler("workspace", self.cmd_workspace))
+        self.app.add_handler(CommandHandler("save", self.cmd_save))
         self.app.add_handler(CommandHandler("clear", self.cmd_clear))
         self.app.add_handler(CommandHandler("help", self.cmd_help))
 

@@ -3,6 +3,7 @@
 import re
 import json
 import logging
+from typing import List
 from ollama import AsyncClient
 
 from .config import OllamaConfig
@@ -34,7 +35,7 @@ class Agent:
             logger.error(f"Failed to warm up model: {e}")
             raise
 
-    async def chat(self, messages: list[dict]) -> str:
+    async def chat(self, messages: List[dict]) -> str:
         """Send a conversation to the model and return the response text."""
         full_messages = [
             {"role": "system", "content": self.system_prompt},
@@ -57,7 +58,7 @@ class Agent:
             return f"Sorry, I had trouble thinking about that. Error: {e}"
 
     @staticmethod
-    def parse_cron_blocks(text: str) -> list[dict]:
+    def parse_cron_blocks(text: str) -> List[dict]:
         """Extract ```cron ... ``` blocks from the response.
 
         Expected format:
@@ -78,7 +79,7 @@ class Agent:
         return jobs
 
     @staticmethod
-    def parse_save_blocks(text: str) -> list[dict]:
+    def parse_save_blocks(text: str) -> List[dict]:
         """Extract ```save:filename ... ``` blocks from the response.
 
         Expected format:
@@ -89,6 +90,19 @@ class Agent:
         pattern = r"```save:(\S+)\s*\n(.*?)\n\s*```"
         matches = re.findall(pattern, text, re.DOTALL)
         return [{"filename": m[0], "content": m[1]} for m in matches]
+
+    @staticmethod
+    def extract_code_blocks(text: str) -> List[dict]:
+        """Extract all code blocks from text (```language ... ```).
+
+        Returns a list of dicts with 'language' and 'content' keys.
+        """
+        pattern = r"```(\w+)?\s*\n(.*?)\n\s*```"
+        matches = re.findall(pattern, text, re.DOTALL)
+        return [
+            {"language": m[0] or "text", "content": m[1].strip()}
+            for m in matches
+        ]
 
     @staticmethod
     def clean_response(text: str) -> str:
