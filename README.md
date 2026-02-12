@@ -19,7 +19,7 @@ Designed to run on a Raspberry Pi 5 with the Hailo AI HAT+ 2.
 - Python 3.11+
 - Ollama installed and running
 - A Telegram Bot Token (from [@BotFather](https://t.me/botfather))
-- A model pulled in Ollama (e.g. `ollama pull tinyllama`)
+- A model pulled in Ollama (e.g. `ollama pull qwen2.5-instruct:1.5b`)
 
 ## Quick Start
 
@@ -60,7 +60,7 @@ telegram:
   token: "YOUR_BOT_TOKEN_HERE"
 
 ollama:
-  host: "http://localhost:11434"
+  host: "http://localhost:11434" #or "http://localhost:8000" for Hailo AI HAT+2
   model: "tinyllama"
   keep_alive: -1        # Keep model loaded forever
   context_length: 4096
@@ -79,8 +79,8 @@ memory:
 
 ```
 ┌─────────────┐     ┌──────────────┐     ┌─────────────┐
-│  Telegram    │◄───►│  PiLobster   │◄───►│   Ollama    │
-│  (mobile)    │     │   (Python)   │     │ (tinyllama) │
+│  Telegram   │◄───►│  PiLobster   │◄───►│   Ollama    │
+│  (mobile)   │     │   (Python)   │     │ (tinyllama) │
 └─────────────┘     └──────┬───────┘     └─────────────┘
                            │
                     ┌──────┴───────┐
@@ -88,14 +88,9 @@ memory:
                     │  (memory +   │
                     │   cron jobs) │
                     └──────────────┘
-```
+``` 
 
-## Commands
-
-In Telegram, you can use these commands:
-
-- `/start` — Welcome message
-- `/status` — Show system status (model, uptime, jobs)
+## Commands In Telegram, you can use these commands: - `/start` — Welcome message - `/status` — Show system status (model, uptime, jobs)
 - `/jobs` — List scheduled cron jobs
 - `/cancel <id>` — Cancel a scheduled job
 - `/workspace` — List files in the workspace
