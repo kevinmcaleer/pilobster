@@ -1,7 +1,7 @@
 """Cron scheduler — runs recurring tasks via APScheduler."""
 
 import logging
-from typing import List
+from typing import List, Callable, Awaitable
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
@@ -16,14 +16,22 @@ class Scheduler:
     def __init__(self, memory: Memory):
         self.memory = memory
         self.apscheduler = AsyncIOScheduler()
-        self._send_callback = None
+        self._send_callbacks = []
 
-    def set_send_callback(self, callback):
+    def set_send_callback(self, callback: Callable[[int, str], Awaitable[None]]):
         """Set the callback function for sending messages.
 
         The callback should accept (user_id: int, message: str).
         """
-        self._send_callback = callback
+        self._send_callbacks = [callback]
+
+    def add_send_callback(self, callback: Callable[[int, str], Awaitable[None]]):
+        """Add an additional callback function for sending messages.
+
+        Useful for "both" mode where both TUI and Telegram need notifications.
+        """
+        if callback not in self._send_callbacks:
+            self._send_callbacks.append(callback)
 
     async def load_jobs(self):
         """Load all enabled cron jobs from the database."""
@@ -90,15 +98,16 @@ class Scheduler:
             logger.error(f"Failed to schedule job #{job['id']}: {e}")
 
     async def _execute_job(self, user_id: int, message: str):
-        """Execute a cron job by sending a message to the user."""
-        if self._send_callback:
-            try:
-                await self._send_callback(user_id, message)
-                logger.info(f"Cron job sent message to user {user_id}")
-            except Exception as e:
-                logger.error(f"Failed to send cron message: {e}")
+        """Execute a cron job by sending a message to all registered callbacks."""
+        if self._send_callbacks:
+            for callback in self._send_callbacks:
+                try:
+                    await callback(user_id, message)
+                    logger.debug(f"Cron job sent message to user {user_id} via {callback.__name__}")
+                except Exception as e:
+                    logger.error(f"Failed to send cron message via {callback.__name__}: {e}")
         else:
-            logger.warning("No send callback registered — cron message dropped")
+            logger.warning("No send callbacks registered — cron message dropped")
 
     def start(self):
         """Start the APScheduler."""
