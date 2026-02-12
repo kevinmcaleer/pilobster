@@ -39,10 +39,19 @@ class Agent:
             "stream": False,  # Non-streaming for simplicity
         }
 
-        response = await self.http_client.post(url, json=payload)
-        response.raise_for_status()
-        data = response.json()
-        return data["message"]["content"]
+        try:
+            response = await self.http_client.post(url, json=payload)
+            response.raise_for_status()
+            data = response.json()
+            return data["message"]["content"]
+        except httpx.ConnectError as e:
+            raise Exception(f"Cannot connect to Ollama at {self.config.host}. Is Ollama running? ({e})")
+        except httpx.HTTPStatusError as e:
+            raise Exception(f"Ollama returned error {e.response.status_code}: {e.response.text}")
+        except KeyError as e:
+            raise Exception(f"Unexpected response format from Ollama (missing {e})")
+        except Exception as e:
+            raise Exception(f"Ollama request failed: {type(e).__name__}: {e}")
 
     async def chat(self, messages: List[dict]) -> str:
         """Send a conversation to the model and return the response text."""
