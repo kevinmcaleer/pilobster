@@ -146,7 +146,9 @@ class PiLobsterTUI(App):
         args = parts[1:] if len(parts) > 1 else []
 
         if cmd == "/quit" or cmd == "/exit":
+            # Exit the app and raise SystemExit to terminate the entire process
             self.exit()
+            raise SystemExit(0)
 
         elif cmd == "/clear":
             self.action_clear_history()
@@ -386,6 +388,11 @@ class PiLobsterTUI(App):
 
         # Process the message as if the user sent it
         await self.process_message(message)
+
+    def action_quit(self) -> None:
+        """Quit the application (Ctrl+C or Ctrl+Q)."""
+        self.exit()
+        raise SystemExit(0)
 
     def action_clear_history(self) -> None:
         """Clear chat history (Ctrl+L)."""
