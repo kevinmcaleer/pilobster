@@ -33,14 +33,14 @@ def parse_args():
     parser.add_argument(
         "--mode",
         choices=["telegram", "tui", "both"],
-        default="telegram",
-        help="Run mode: telegram bot, terminal UI, or both (default: telegram)",
+        default="both",
+        help="Run mode: telegram bot, terminal UI, or both (default: both)",
     )
     parser.add_argument(
         "--user-id",
         type=int,
-        default=0,
-        help="User ID for TUI mode (default: 0)",
+        default=None,
+        help="User ID for conversations (default: auto-detect from Telegram in 'both' mode, 0 for TUI-only)",
     )
     parser.add_argument(
         "--config",
@@ -158,11 +158,24 @@ async def main():
             datefmt="%Y-%m-%d %H:%M:%S",
         )
 
+    # Determine user_id
+    if args.user_id is None:
+        if args.mode == "tui":
+            args.user_id = 0  # Default for TUI-only
+        else:
+            args.user_id = 0  # Default for telegram/both
+
     print(BANNER)
     print(f"Mode: {args.mode}")
     if args.mode in ["tui", "both"]:
         print(f"TUI User ID: {args.user_id}")
-        print(f"Logs: pilobster.log\n")
+        print(f"Logs: pilobster.log")
+        if args.mode == "both":
+            print(f"\n💡 Tip: To sync TUI with a specific Telegram user,")
+            print(f"   use --user-id <telegram_user_id>")
+            print(f"   Find your Telegram ID with @userinfobot\n")
+        else:
+            print()
 
     # Load config
     try:

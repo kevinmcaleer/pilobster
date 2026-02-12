@@ -41,11 +41,14 @@ pip install -r requirements.txt
 cp config.example.yaml config.yaml
 nano config.yaml  # Add your Telegram bot token and model name
 
-# Run it (Telegram mode - default)
+# Run it (Both Telegram and TUI - default)
 python -m pilobster
 
-# Or run in Terminal UI mode (no Telegram needed!)
+# Or run in Terminal UI mode only (no Telegram needed!)
 python -m pilobster --mode tui
+
+# Or run in Telegram mode only
+python -m pilobster --mode telegram
 ```
 
 ## Using the Terminal UI
@@ -58,18 +61,32 @@ PiLobster includes a beautiful terminal UI powered by Textual, giving you a Clau
 # Terminal UI only
 python -m pilobster --mode tui
 
-# With custom user ID (for separate conversation histories)
-python -m pilobster --mode tui --user-id 42
-
-# Run both Telegram and TUI simultaneously
+# Both modes (default) - conversations sync between Telegram and TUI
 python -m pilobster --mode both
+
+# Sync with specific Telegram user (find your ID with @userinfobot)
+python -m pilobster --mode both --user-id YOUR_TELEGRAM_ID
 ```
 
-### TUI Keyboard Shortcuts
+**Conversation Sync in "Both" Mode:**
+When running both Telegram and TUI:
+- Use the same `--user-id` for both interfaces to share conversation history
+- Messages sent in TUI appear in Telegram (and vice versa)
+- Both interfaces sync automatically every 2 seconds
+- Use `/quit` in TUI to exit cleanly
 
+### TUI Commands & Shortcuts
+
+**Commands:**
+- `/quit` or `/exit` — Exit PiLobster
+- `/clear` — Clear chat history
+- `/status` — Show system status
+- `/help` — Show help message
+
+**Keyboard Shortcuts:**
 - **Ctrl+C** — Quit
 - **Ctrl+L** — Clear chat history
-- **Ctrl+S** — Show system status (model, jobs, files)
+- **Ctrl+S** — Show system status
 - **Enter** — Send message
 
 ### TUI Features
@@ -84,9 +101,9 @@ The Terminal UI supports all the same features as the Telegram bot:
 
 ### When to Use Which Mode
 
-- **Telegram (`--mode telegram`)**: Access your AI from anywhere, on your phone
-- **TUI (`--mode tui`)**: Direct terminal access when working on the same machine
-- **Both (`--mode both`)**: Run both interfaces simultaneously
+- **Both (`--mode both`)** *(default)*: Best of both worlds - chat from your phone or terminal, with synced conversations
+- **TUI only (`--mode tui`)**: Direct terminal access, no Telegram needed
+- **Telegram only (`--mode telegram`)**: Access your AI only from your phone/Telegram
 
 ## Getting a Telegram Bot Token
 
