@@ -266,12 +266,13 @@ class TelegramBot:
         # Check if arguments were provided
         if not context.args or len(context.args) < 6:
             await update.message.reply_text(
-                "Usage: `/schedule <cron> <message>`\n\n"
+                "Usage: `/schedule <cron> <prompt>`\n\n"
+                "The prompt will be sent to me when the job triggers.\n\n"
                 "Cron format: `minute hour day month weekday`\n\n"
                 "Examples:\n"
                 "`/schedule */3 * * * * Tell me a joke`\n"
-                "`/schedule 0 9 * * * Good morning!`\n"
-                "`/schedule 30 14 * * 1-5 Afternoon reminder`\n\n"
+                "`/schedule 0 9 * * * Give me a motivational quote`\n"
+                "`/schedule 30 14 * * 1-5 Remind me to stand up`\n\n"
                 "Common patterns:\n"
                 "• `*/5 * * * *` — Every 5 minutes\n"
                 "• `0 * * * *` — Every hour\n"
@@ -290,8 +291,8 @@ class TelegramBot:
 
         if not message:
             await update.message.reply_text(
-                "❌ Message cannot be empty.\n"
-                "Usage: `/schedule <cron> <message>`",
+                "❌ Prompt cannot be empty.\n"
+                "Usage: `/schedule <cron> <prompt>`",
                 parse_mode="Markdown",
             )
             return
