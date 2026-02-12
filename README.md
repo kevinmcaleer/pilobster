@@ -166,7 +166,10 @@ You can ask the bot naturally ("Remind me every morning at 9am") or use the `/sc
 /schedule */5 * * * * Check the temperature
 /schedule 0 9 * * * Good morning!
 /schedule 30 14 * * 1-5 Afternoon standup reminder
+/schedule */3 * * * * Tell me a joke
 ```
+
+**How it works:** The message you provide is sent to the AI as a prompt when the cron job triggers. So `/schedule */3 * * * * Tell me a joke` will ask the AI to tell you a joke every 3 minutes (and the AI will generate a different joke each time).
 
 Cron format: `minute hour day month weekday`
 

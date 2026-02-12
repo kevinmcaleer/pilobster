@@ -44,9 +44,71 @@ class TelegramBot:
         return not allowed or user_id in allowed
 
     async def _send_message(self, user_id: int, message: str):
-        """Send a message to a user. Used as the scheduler callback."""
-        if self.app:
-            await self.app.bot.send_message(chat_id=user_id, text=message)
+        """Send a message to a user. Used as the scheduler callback.
+
+        This processes the message as if the user sent it, so the AI
+        generates a response instead of just echoing the message.
+        """
+        if not self.app:
+            return
+
+        logger.info(f"Cron job triggered for user {user_id}: {message}")
+
+        # Store the prompt in history as a user message
+        await self.memory.add_message(user_id, "user", message)
+
+        # Get conversation history
+        history = await self.memory.get_history(
+            user_id, self.config.memory.max_history
+        )
+
+        # Get AI response
+        response = await self.agent.chat(history)
+
+        # Parse for cron jobs (in case the AI creates new jobs)
+        cron_jobs, cron_errors = self.agent.parse_cron_blocks(response)
+
+        # Show validation errors if any
+        if cron_errors:
+            error_msg = "⚠️ Cron job errors:\n" + "\n".join(f"• {e}" for e in cron_errors)
+            await self.app.bot.send_message(chat_id=user_id, text=error_msg)
+
+        # Create valid jobs
+        for job in cron_jobs:
+            job_id = await self.scheduler.add_job(
+                user_id, job["schedule"], job["task"], job["message"]
+            )
+            await self.app.bot.send_message(
+                chat_id=user_id,
+                text=f"✅ Scheduled job #{job_id}: {job['task']}\n"
+                     f"Schedule: `{job['schedule']}`",
+                parse_mode="Markdown",
+            )
+
+        # Parse for file saves
+        save_blocks = self.agent.parse_save_blocks(response)
+        for block in save_blocks:
+            filepath = await self.workspace.save_file(
+                block["filename"], block["content"]
+            )
+            await self.app.bot.send_message(
+                chat_id=user_id,
+                text=f"💾 Saved `{filepath.name}` to workspace",
+                parse_mode="Markdown",
+            )
+
+        # Send the cleaned response
+        clean = self.agent.clean_response(response)
+        if clean:
+            # Telegram has a 4096 char limit — split if needed
+            for i in range(0, len(clean), 4000):
+                await self.app.bot.send_message(
+                    chat_id=user_id,
+                    text=clean[i : i + 4000]
+                )
+
+        # Store assistant response
+        await self.memory.add_message(user_id, "assistant", response)
 
     # --- Command Handlers ---
 
