@@ -10,6 +10,9 @@ from typing import Optional, List
 class Memory:
     """SQLite-backed storage for conversations, cron jobs, and notes."""
 
+    # Single-user system - hardcode user_id
+    USER_ID = 1
+
     def __init__(self, db_path: str = "./pilobster.db"):
         self.db_path = db_path
         self.db: Optional[aiosqlite.Connection] = None
@@ -52,59 +55,51 @@ class Memory:
 
     # --- Conversation History ---
 
-    async def add_message(self, user_id: int, role: str, content: str):
+    async def add_message(self, role: str, content: str):
         """Store a conversation message."""
         await self.db.execute(
             "INSERT INTO conversations (user_id, role, content) VALUES (?, ?, ?)",
-            (user_id, role, content),
+            (self.USER_ID, role, content),
         )
         await self.db.commit()
 
-    async def get_history(self, user_id: int, limit: int = 50) -> List[dict]:
-        """Retrieve recent conversation history for a user."""
+    async def get_history(self, limit: int = 50) -> List[dict]:
+        """Retrieve recent conversation history."""
         cursor = await self.db.execute(
             "SELECT role, content FROM conversations "
             "WHERE user_id = ? ORDER BY id DESC LIMIT ?",
-            (user_id, limit),
+            (self.USER_ID, limit),
         )
         rows = await cursor.fetchall()
         # Reverse so oldest messages come first
         return [{"role": row[0], "content": row[1]} for row in reversed(rows)]
 
-    async def clear_history(self, user_id: int):
-        """Clear conversation history for a user."""
+    async def clear_history(self):
+        """Clear conversation history."""
         await self.db.execute(
-            "DELETE FROM conversations WHERE user_id = ?", (user_id,)
+            "DELETE FROM conversations WHERE user_id = ?", (self.USER_ID,)
         )
         await self.db.commit()
 
     # --- Cron Jobs ---
 
-    async def add_cron_job(
-        self, user_id: int, schedule: str, task: str, message: str
-    ) -> int:
+    async def add_cron_job(self, schedule: str, task: str, message: str) -> int:
         """Add a new cron job. Returns the job ID."""
         cursor = await self.db.execute(
             "INSERT INTO cron_jobs (user_id, schedule, task, message) "
             "VALUES (?, ?, ?, ?)",
-            (user_id, schedule, task, message),
+            (self.USER_ID, schedule, task, message),
         )
         await self.db.commit()
         return cursor.lastrowid
 
-    async def get_cron_jobs(self, user_id: Optional[int] = None) -> List[dict]:
-        """Get all cron jobs, optionally filtered by user."""
-        if user_id:
-            cursor = await self.db.execute(
-                "SELECT id, user_id, schedule, task, message, enabled "
-                "FROM cron_jobs WHERE user_id = ? AND enabled = 1",
-                (user_id,),
-            )
-        else:
-            cursor = await self.db.execute(
-                "SELECT id, user_id, schedule, task, message, enabled "
-                "FROM cron_jobs WHERE enabled = 1"
-            )
+    async def get_cron_jobs(self) -> List[dict]:
+        """Get all cron jobs."""
+        cursor = await self.db.execute(
+            "SELECT id, user_id, schedule, task, message, enabled "
+            "FROM cron_jobs WHERE user_id = ? AND enabled = 1",
+            (self.USER_ID,),
+        )
         rows = await cursor.fetchall()
         return [
             {

@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Optional
 from textual.app import App, ComposeResult
 from textual.containers import ScrollableContainer
-from textual.widgets import Header, Footer, Static, Input, RichLog
+from textual.widgets import Header, Static, Input, RichLog
 from textual.binding import Binding
 from rich.panel import Panel
 from rich.markdown import Markdown
@@ -88,7 +88,6 @@ class PiLobsterTUI(App):
         memory: Memory,
         scheduler: Scheduler,
         workspace: Workspace,
-        user_id: int = 1,
     ):
         super().__init__()
         self.config = config
@@ -96,7 +95,6 @@ class PiLobsterTUI(App):
         self.memory = memory
         self.scheduler = scheduler
         self.workspace = workspace
-        self.user_id = user_id
         self.processing = False
         self.title = "🦞 PiLobster"
         self.sub_title = "Local AI Assistant"
@@ -128,7 +126,7 @@ class PiLobsterTUI(App):
         chat_log.write(welcome)
 
         # Load conversation history
-        history = await self.memory.get_history(self.user_id, limit=20)
+        history = await self.memory.get_history(limit=20)
         self.last_message_count = len(history)
         if history:
             chat_log.write("\n")
@@ -227,6 +225,12 @@ class PiLobsterTUI(App):
 - `Ctrl+L` — Clear history
 - `Ctrl+S` — Show status"""
             await self.display_message("assistant", help_text)
+            # Send to Telegram
+            if self.telegram_callback:
+                try:
+                    await self.telegram_callback(help_text)
+                except Exception as e:
+                    logger.error(f"Failed to send message to Telegram: {e}")
 
         else:
             # Unknown command, process as normal message
@@ -241,11 +245,11 @@ class PiLobsterTUI(App):
             await self.display_message("user", user_text)
 
             # Store user message
-            await self.memory.add_message(self.user_id, "user", user_text)
+            await self.memory.add_message("user", user_text)
 
             # Get conversation history
             history = await self.memory.get_history(
-                self.user_id, self.config.memory.max_history
+                self.config.memory.max_history
             )
 
             # Display thinking status
@@ -270,7 +274,7 @@ class PiLobsterTUI(App):
             # Create valid jobs
             for job in cron_jobs:
                 job_id = await self.scheduler.add_job(
-                    self.user_id, job["schedule"], job["task"], job["message"]
+                    job["schedule"], job["task"], job["message"]
                 )
                 await self.display_status_message(
                     f"Scheduled job #{job_id}: {job['task']} ({job['schedule']})",
@@ -293,7 +297,7 @@ class PiLobsterTUI(App):
                 await self.display_message("assistant", clean)
 
             # Store assistant response
-            await self.memory.add_message(self.user_id, "assistant", response)
+            await self.memory.add_message("assistant", response)
 
             # Send to Telegram if callback is set (in "both" mode)
             if self.telegram_callback:
@@ -335,6 +339,19 @@ class PiLobsterTUI(App):
         """
         self.telegram_callback = callback
 
+    async def display_telegram_message(self, message: str, is_user: bool):
+        """Display a message received from Telegram.
+
+        Called by the bot when messages are sent via Telegram (in "both" mode).
+        This shows command outputs and other messages from Telegram in the TUI.
+        """
+        if is_user:
+            # User message from Telegram
+            await self.display_message_panel("📱 Telegram", message, "blue")
+        else:
+            # Assistant/system message from Telegram
+            await self.display_message_panel("PiLobster 🦞", message, "magenta")
+
     async def check_for_new_messages(self):
         """Check for new messages from Telegram and display them.
 
@@ -345,7 +362,7 @@ class PiLobsterTUI(App):
 
         try:
             # Get current message count
-            history = await self.memory.get_history(self.user_id, limit=100)
+            history = await self.memory.get_history(limit=100)
             current_count = len(history)
 
             # If there are new messages, display them
@@ -379,16 +396,12 @@ class PiLobsterTUI(App):
         )
         chat_log.write(panel)
 
-    async def handle_scheduler_callback(self, user_id: int, message: str):
+    async def handle_scheduler_callback(self, message: str):
         """Callback for scheduler - displays cron message in TUI and processes it.
 
         This method is called when a cron job triggers.
         """
-        # Only process if it's for this TUI's user
-        if user_id != self.user_id:
-            return
-
-        logger.info(f"Cron job triggered for user {user_id}: {message}")
+        logger.info(f"Cron job triggered: {message}")
 
         # Display notification
         await self.display_status_message(
@@ -402,10 +415,17 @@ class PiLobsterTUI(App):
         """Clear chat history (Ctrl+L)."""
 
         async def _clear():
-            await self.memory.clear_history(self.user_id)
+            await self.memory.clear_history()
             chat_log = self.query_one("#chat_log", RichLog)
             chat_log.clear()
-            await self.display_status_message("Chat history cleared", emoji="🧹")
+            message = "Chat history cleared"
+            await self.display_status_message(message, emoji="🧹")
+            # Send to Telegram
+            if self.telegram_callback:
+                try:
+                    await self.telegram_callback(f"🧹 {message}")
+                except Exception as e:
+                    logger.error(f"Failed to send message to Telegram: {e}")
 
         asyncio.create_task(_clear())
 
@@ -413,7 +433,7 @@ class PiLobsterTUI(App):
         """Show system status (Ctrl+S)."""
 
         async def _show_status():
-            jobs = await self.scheduler.list_jobs(self.user_id)
+            jobs = await self.scheduler.list_jobs()
             files = self.workspace.list_files()
 
             status_text = f"""**Model:** `{self.config.ollama.model}`
@@ -431,21 +451,41 @@ class PiLobsterTUI(App):
                 expand=False,
             )
             chat_log.write(panel)
+            # Send to Telegram
+            if self.telegram_callback:
+                try:
+                    await self.telegram_callback(f"🦞 System Status\n\n{status_text}")
+                except Exception as e:
+                    logger.error(f"Failed to send message to Telegram: {e}")
 
         asyncio.create_task(_show_status())
 
     async def cmd_jobs(self):
         """List scheduled cron jobs."""
-        jobs = await self.scheduler.list_jobs(self.user_id)
+        jobs = await self.scheduler.list_jobs()
         if not jobs:
-            await self.display_message("assistant", "No scheduled jobs. Ask me to schedule something!")
+            message = "No scheduled jobs. Ask me to schedule something!"
+            await self.display_message("assistant", message)
+            # Send to Telegram
+            if self.telegram_callback:
+                try:
+                    await self.telegram_callback(message)
+                except Exception as e:
+                    logger.error(f"Failed to send message to Telegram: {e}")
             return
 
         lines = ["**Scheduled Jobs**\n"]
         for job in jobs:
             lines.append(f"#{job['id']} — {job['task']}\n  Schedule: `{job['schedule']}`")
 
-        await self.display_message("assistant", "\n".join(lines))
+        message = "\n".join(lines)
+        await self.display_message("assistant", message)
+        # Send to Telegram
+        if self.telegram_callback:
+            try:
+                await self.telegram_callback(message)
+            except Exception as e:
+                logger.error(f"Failed to send message to Telegram: {e}")
 
     async def cmd_schedule(self, args: list):
         """Manually create a cron job."""
@@ -468,6 +508,12 @@ The prompt will be sent to me when the job triggers.
 - `0 9 * * *` — Daily at 9am
 - `0 9 * * 1` — Every Monday at 9am"""
             await self.display_message("assistant", help_text)
+            # Send to Telegram
+            if self.telegram_callback:
+                try:
+                    await self.telegram_callback(help_text)
+                except Exception as e:
+                    logger.error(f"Failed to send message to Telegram: {e}")
             return
 
         # Parse cron expression (first 5 args) and message (remaining args)
@@ -478,7 +524,14 @@ The prompt will be sent to me when the job triggers.
         message = " ".join(message_parts)
 
         if not message:
-            await self.display_message("assistant", "❌ Prompt cannot be empty.\nUsage: `/schedule <cron> <prompt>`")
+            error_msg = "❌ Prompt cannot be empty.\nUsage: `/schedule <cron> <prompt>`"
+            await self.display_message("assistant", error_msg)
+            # Send to Telegram
+            if self.telegram_callback:
+                try:
+                    await self.telegram_callback(error_msg)
+                except Exception as e:
+                    logger.error(f"Failed to send message to Telegram: {e}")
             return
 
         # Create a task description from the message (truncate if needed)
@@ -486,38 +539,86 @@ The prompt will be sent to me when the job triggers.
 
         # Validate and create the job
         try:
-            job_id = await self.scheduler.add_job(self.user_id, schedule, task, message)
+            job_id = await self.scheduler.add_job(schedule, task, message)
             result = f"✅ Scheduled job #{job_id}: {task}\nSchedule: `{schedule}`\nMessage: {message}"
             await self.display_message("assistant", result)
+            # Send to Telegram
+            if self.telegram_callback:
+                try:
+                    await self.telegram_callback(result)
+                except Exception as e:
+                    logger.error(f"Failed to send message to Telegram: {e}")
         except ValueError as e:
             error = f"❌ Invalid cron expression: {e}\n\nCron format: `minute hour day month weekday`\nExample: `*/3 * * * *` (every 3 minutes)"
             await self.display_message("assistant", error)
+            # Send to Telegram
+            if self.telegram_callback:
+                try:
+                    await self.telegram_callback(error)
+                except Exception as e:
+                    logger.error(f"Failed to send message to Telegram: {e}")
         except Exception as e:
-            await self.display_message("assistant", f"❌ Error creating job: {e}")
+            error_msg = f"❌ Error creating job: {e}"
+            await self.display_message("assistant", error_msg)
+            # Send to Telegram
+            if self.telegram_callback:
+                try:
+                    await self.telegram_callback(error_msg)
+                except Exception as e:
+                    logger.error(f"Failed to send message to Telegram: {e}")
 
     async def cmd_cancel(self, args: list):
         """Cancel a scheduled job by ID."""
         if not args:
-            await self.display_message("assistant", "Usage: `/cancel <job_id>`")
+            message = "Usage: `/cancel <job_id>`"
+            await self.display_message("assistant", message)
+            # Send to Telegram
+            if self.telegram_callback:
+                try:
+                    await self.telegram_callback(message)
+                except Exception as e:
+                    logger.error(f"Failed to send message to Telegram: {e}")
             return
 
         try:
             job_id = int(args[0])
         except ValueError:
-            await self.display_message("assistant", "Job ID must be a number.")
+            message = "Job ID must be a number."
+            await self.display_message("assistant", message)
+            # Send to Telegram
+            if self.telegram_callback:
+                try:
+                    await self.telegram_callback(message)
+                except Exception as e:
+                    logger.error(f"Failed to send message to Telegram: {e}")
             return
 
         success = await self.scheduler.cancel_job(job_id)
         if success:
-            await self.display_message("assistant", f"✅ Cancelled job #{job_id}")
+            message = f"✅ Cancelled job #{job_id}"
         else:
-            await self.display_message("assistant", f"Job #{job_id} not found.")
+            message = f"Job #{job_id} not found."
+
+        await self.display_message("assistant", message)
+        # Send to Telegram
+        if self.telegram_callback:
+            try:
+                await self.telegram_callback(message)
+            except Exception as e:
+                logger.error(f"Failed to send message to Telegram: {e}")
 
     async def cmd_workspace(self):
         """List files in workspace."""
         files = self.workspace.list_files()
         if not files:
-            await self.display_message("assistant", "Workspace is empty. Ask me to write some code!")
+            message = "Workspace is empty. Ask me to write some code!"
+            await self.display_message("assistant", message)
+            # Send to Telegram
+            if self.telegram_callback:
+                try:
+                    await self.telegram_callback(message)
+                except Exception as e:
+                    logger.error(f"Failed to send message to Telegram: {e}")
             return
 
         lines = ["**Workspace Files**\n"]
@@ -525,22 +626,33 @@ The prompt will be sent to me when the job triggers.
             size_kb = f["size"] / 1024
             lines.append(f"`{f['name']}` ({size_kb:.1f} KB)")
 
-        await self.display_message("assistant", "\n".join(lines))
+        message = "\n".join(lines)
+        await self.display_message("assistant", message)
+        # Send to Telegram
+        if self.telegram_callback:
+            try:
+                await self.telegram_callback(message)
+            except Exception as e:
+                logger.error(f"Failed to send message to Telegram: {e}")
 
     async def cmd_save(self, args: list):
         """Manually save code from last response."""
         # Check if filename was provided
         if not args:
-            await self.display_message(
-                "assistant",
-                "**Usage:** `/save filename.py`\n\nThis will save the last code block from my response."
-            )
+            message = "**Usage:** `/save filename.py`\n\nThis will save the last code block from my response."
+            await self.display_message("assistant", message)
+            # Send to Telegram
+            if self.telegram_callback:
+                try:
+                    await self.telegram_callback(message)
+                except Exception as e:
+                    logger.error(f"Failed to send message to Telegram: {e}")
             return
 
         filename = args[0]
 
         # Get recent history to find the last assistant message
-        history = await self.memory.get_history(self.user_id, limit=10)
+        history = await self.memory.get_history(limit=10)
 
         # Find the most recent assistant message with code
         last_code = None
@@ -552,15 +664,33 @@ The prompt will be sent to me when the job triggers.
                     break
 
         if not last_code:
-            await self.display_message(
-                "assistant",
-                "❌ No code blocks found in recent conversation. Ask me to write some code first!"
-            )
+            message = "❌ No code blocks found in recent conversation. Ask me to write some code first!"
+            await self.display_message("assistant", message)
+            # Send to Telegram
+            if self.telegram_callback:
+                try:
+                    await self.telegram_callback(message)
+                except Exception as e:
+                    logger.error(f"Failed to send message to Telegram: {e}")
             return
 
         # Save the code
         try:
             filepath = await self.workspace.save_file(filename, last_code)
-            await self.display_message("assistant", f"💾 Saved `{filepath.name}` to workspace")
+            message = f"💾 Saved `{filepath.name}` to workspace"
+            await self.display_message("assistant", message)
+            # Send to Telegram
+            if self.telegram_callback:
+                try:
+                    await self.telegram_callback(message)
+                except Exception as e:
+                    logger.error(f"Failed to send message to Telegram: {e}")
         except Exception as e:
-            await self.display_message("assistant", f"❌ Error saving file: {e}")
+            message = f"❌ Error saving file: {e}"
+            await self.display_message("assistant", message)
+            # Send to Telegram
+            if self.telegram_callback:
+                try:
+                    await self.telegram_callback(message)
+                except Exception as e:
+                    logger.error(f"Failed to send message to Telegram: {e}")

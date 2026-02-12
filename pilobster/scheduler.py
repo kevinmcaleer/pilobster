@@ -18,14 +18,14 @@ class Scheduler:
         self.apscheduler = AsyncIOScheduler()
         self._send_callbacks = []
 
-    def set_send_callback(self, callback: Callable[[int, str], Awaitable[None]]):
+    def set_send_callback(self, callback: Callable[[str], Awaitable[None]]):
         """Set the callback function for sending messages.
 
-        The callback should accept (user_id: int, message: str).
+        The callback should accept (message: str).
         """
         self._send_callbacks = [callback]
 
-    def add_send_callback(self, callback: Callable[[int, str], Awaitable[None]]):
+    def add_send_callback(self, callback: Callable[[str], Awaitable[None]]):
         """Add an additional callback function for sending messages.
 
         Useful for "both" mode where both TUI and Telegram need notifications.
@@ -40,14 +40,12 @@ class Scheduler:
             self._add_apscheduler_job(job)
         logger.info(f"Loaded {len(jobs)} cron job(s) from database")
 
-    async def add_job(
-        self, user_id: int, schedule: str, task: str, message: str
-    ) -> int:
+    async def add_job(self, schedule: str, task: str, message: str) -> int:
         """Add a new cron job and schedule it."""
-        job_id = await self.memory.add_cron_job(user_id, schedule, task, message)
+        job_id = await self.memory.add_cron_job(schedule, task, message)
         job = {
             "id": job_id,
-            "user_id": user_id,
+            "user_id": self.memory.USER_ID,
             "schedule": schedule,
             "task": task,
             "message": message,
@@ -67,9 +65,9 @@ class Scheduler:
             logger.info(f"Cancelled cron job #{job_id}")
         return success
 
-    async def list_jobs(self, user_id: int) -> List[dict]:
-        """List all active cron jobs for a user."""
-        return await self.memory.get_cron_jobs(user_id)
+    async def list_jobs(self) -> List[dict]:
+        """List all active cron jobs."""
+        return await self.memory.get_cron_jobs()
 
     def _add_apscheduler_job(self, job: dict):
         """Register a job with APScheduler."""
@@ -91,19 +89,19 @@ class Scheduler:
                 self._execute_job,
                 trigger=trigger,
                 id=f"cron_{job['id']}",
-                kwargs={"user_id": job["user_id"], "message": job["message"]},
+                kwargs={"message": job["message"]},
                 replace_existing=True,
             )
         except Exception as e:
             logger.error(f"Failed to schedule job #{job['id']}: {e}")
 
-    async def _execute_job(self, user_id: int, message: str):
+    async def _execute_job(self, message: str):
         """Execute a cron job by sending a message to all registered callbacks."""
         if self._send_callbacks:
             for callback in self._send_callbacks:
                 try:
-                    await callback(user_id, message)
-                    logger.debug(f"Cron job sent message to user {user_id} via {callback.__name__}")
+                    await callback(message)
+                    logger.debug(f"Cron job sent message via {callback.__name__}")
                 except Exception as e:
                     logger.error(f"Failed to send cron message via {callback.__name__}: {e}")
         else:

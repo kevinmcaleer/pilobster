@@ -17,10 +17,6 @@ from .memory import Memory
 from .scheduler import Scheduler
 from .workspace import Workspace
 
-# Single user mode - imported from __main__
-# All Telegram users share the same conversation
-PILOBSTER_USER_ID = 1
-
 logger = logging.getLogger("pilobster.telegram")
 
 
@@ -42,6 +38,7 @@ class TelegramBot:
         self.workspace = workspace
         self.app: Optional[Application] = None
         self.chat_id: Optional[int] = None  # Telegram chat ID for sending messages
+        self.tui_callback = None  # Callback to send messages to TUI
 
     def _is_allowed(self, user_id: int) -> bool:
         """Check if a user is allowed to use the bot.
@@ -51,6 +48,22 @@ class TelegramBot:
         """
         allowed = self.config.telegram.allowed_users
         return not allowed or user_id in allowed
+
+    def set_tui_callback(self, callback):
+        """Set callback to send messages to TUI.
+
+        Callback should accept (message: str, is_user: bool) where is_user
+        indicates if this is a user message (True) or assistant/system message (False).
+        """
+        self.tui_callback = callback
+
+    async def _send_to_tui(self, message: str, is_user: bool = False):
+        """Send a message to TUI for display (in "both" mode)."""
+        if self.tui_callback:
+            try:
+                await self.tui_callback(message, is_user)
+            except Exception as e:
+                logger.error(f"Failed to send message to TUI: {e}")
 
     async def _send_to_telegram(self, message: str):
         """Send a message to Telegram without processing it through the agent.
@@ -71,29 +84,23 @@ class TelegramBot:
         except Exception as e:
             logger.error(f"Failed to send message to Telegram: {e}")
 
-    async def _send_message(self, user_id: int, message: str):
-        """Send a message to a user. Used as the scheduler callback.
+    async def _send_message(self, message: str):
+        """Send a message to the user. Used as the scheduler callback.
 
         This processes the message as if the user sent it, so the AI
         generates a response instead of just echoing the message.
-
-        Note: user_id parameter is kept for compatibility but we use PILOBSTER_USER_ID.
         """
-        if not self.app:
+        if not self.app or self.chat_id is None:
+            logger.debug("Cannot send cron message: app not initialized or chat_id not set")
             return
 
         logger.info(f"Cron job triggered: {message}")
 
-        # Use the shared user ID
-        user_id = PILOBSTER_USER_ID
-
         # Store the prompt in history as a user message
-        await self.memory.add_message(user_id, "user", message)
+        await self.memory.add_message("user", message)
 
         # Get conversation history
-        history = await self.memory.get_history(
-            user_id, self.config.memory.max_history
-        )
+        history = await self.memory.get_history(self.config.memory.max_history)
 
         # Get AI response
         response = await self.agent.chat(history)
@@ -104,15 +111,15 @@ class TelegramBot:
         # Show validation errors if any
         if cron_errors:
             error_msg = "⚠️ Cron job errors:\n" + "\n".join(f"• {e}" for e in cron_errors)
-            await self.app.bot.send_message(chat_id=user_id, text=error_msg)
+            await self.app.bot.send_message(chat_id=self.chat_id, text=error_msg)
 
         # Create valid jobs
         for job in cron_jobs:
             job_id = await self.scheduler.add_job(
-                user_id, job["schedule"], job["task"], job["message"]
+                job["schedule"], job["task"], job["message"]
             )
             await self.app.bot.send_message(
-                chat_id=user_id,
+                chat_id=self.chat_id,
                 text=f"✅ Scheduled job #{job_id}: {job['task']}\n"
                      f"Schedule: `{job['schedule']}`",
                 parse_mode="Markdown",
@@ -125,7 +132,7 @@ class TelegramBot:
                 block["filename"], block["content"]
             )
             await self.app.bot.send_message(
-                chat_id=user_id,
+                chat_id=self.chat_id,
                 text=f"💾 Saved `{filepath.name}` to workspace",
                 parse_mode="Markdown",
             )
@@ -136,22 +143,18 @@ class TelegramBot:
             # Telegram has a 4096 char limit — split if needed
             for i in range(0, len(clean), 4000):
                 await self.app.bot.send_message(
-                    chat_id=user_id,
+                    chat_id=self.chat_id,
                     text=clean[i : i + 4000]
                 )
 
         # Store assistant response
-        await self.memory.add_message(user_id, "assistant", response)
+        await self.memory.add_message("assistant", response)
 
     # --- Command Handlers ---
 
     async def cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /start command."""
-        if not self._is_allowed(PILOBSTER_USER_ID):
-            await update.message.reply_text("Sorry, you're not authorised to use this bot.")
-            return
-
-        await update.message.reply_text(
+        message = (
             "🦞 *PiLobster is online!*\n\n"
             "I'm your local AI assistant running on a Raspberry Pi.\n\n"
             "Just send me a message to chat, or use:\n"
@@ -160,16 +163,14 @@ class TelegramBot:
             "/schedule — Create a cron job\n"
             "/workspace — List generated files\n"
             "/clear — Clear conversation history\n"
-            "/help — Show all commands",
-            parse_mode="Markdown",
+            "/help — Show all commands"
         )
+        await update.message.reply_text(message, parse_mode="Markdown")
+        await self._send_to_tui(message, is_user=False)
 
     async def cmd_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /status command."""
-        if not self._is_allowed(PILOBSTER_USER_ID):
-            return
-
-        jobs = await self.scheduler.list_jobs(PILOBSTER_USER_ID)
+        jobs = await self.scheduler.list_jobs()
         files = self.workspace.list_files()
 
         status = (
@@ -181,52 +182,56 @@ class TelegramBot:
             f"Workspace files: `{len(files)}`"
         )
         await update.message.reply_text(status, parse_mode="Markdown")
+        await self._send_to_tui(status, is_user=False)
 
     async def cmd_jobs(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /jobs command — list scheduled cron jobs."""
-        if not self._is_allowed(PILOBSTER_USER_ID):
-            return
-
-        jobs = await self.scheduler.list_jobs(PILOBSTER_USER_ID)
+        jobs = await self.scheduler.list_jobs()
         if not jobs:
-            await update.message.reply_text("No scheduled jobs. Ask me to schedule something!")
+            message = "No scheduled jobs. Ask me to schedule something!"
+            await update.message.reply_text(message)
+            await self._send_to_tui(message, is_user=False)
             return
 
         lines = ["🕐 *Scheduled Jobs*\n"]
         for job in jobs:
             lines.append(f"#{job['id']} — {job['task']}\n  Schedule: `{job['schedule']}`")
 
-        await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+        message = "\n".join(lines)
+        await update.message.reply_text(message, parse_mode="Markdown")
+        await self._send_to_tui(message, is_user=False)
 
     async def cmd_cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /cancel <id> command — cancel a scheduled job."""
-        if not self._is_allowed(PILOBSTER_USER_ID):
-            return
-
         if not context.args:
-            await update.message.reply_text("Usage: /cancel <job_id>")
+            message = "Usage: /cancel <job_id>"
+            await update.message.reply_text(message)
+            await self._send_to_tui(message, is_user=False)
             return
 
         try:
             job_id = int(context.args[0])
         except ValueError:
-            await update.message.reply_text("Job ID must be a number.")
+            message = "Job ID must be a number."
+            await update.message.reply_text(message)
+            await self._send_to_tui(message, is_user=False)
             return
 
         success = await self.scheduler.cancel_job(job_id)
         if success:
-            await update.message.reply_text(f"✅ Cancelled job #{job_id}")
+            message = f"✅ Cancelled job #{job_id}"
         else:
-            await update.message.reply_text(f"Job #{job_id} not found.")
+            message = f"Job #{job_id} not found."
+        await update.message.reply_text(message)
+        await self._send_to_tui(message, is_user=False)
 
     async def cmd_workspace(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /workspace command — list files in workspace."""
-        if not self._is_allowed(PILOBSTER_USER_ID):
-            return
-
         files = self.workspace.list_files()
         if not files:
-            await update.message.reply_text("Workspace is empty. Ask me to write some code!")
+            message = "Workspace is empty. Ask me to write some code!"
+            await update.message.reply_text(message)
+            await self._send_to_tui(message, is_user=False)
             return
 
         lines = ["📁 *Workspace Files*\n"]
@@ -234,35 +239,33 @@ class TelegramBot:
             size_kb = f["size"] / 1024
             lines.append(f"`{f['name']}` ({size_kb:.1f} KB)")
 
-        await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+        message = "\n".join(lines)
+        await update.message.reply_text(message, parse_mode="Markdown")
+        await self._send_to_tui(message, is_user=False)
 
     async def cmd_clear(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /clear command — clear conversation history."""
-        if not self._is_allowed(PILOBSTER_USER_ID):
-            return
-
-        await self.memory.clear_history(PILOBSTER_USER_ID)
-        await update.message.reply_text("🧹 Conversation history cleared.")
+        await self.memory.clear_history()
+        message = "🧹 Conversation history cleared."
+        await update.message.reply_text(message)
+        await self._send_to_tui(message, is_user=False)
 
     async def cmd_save(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /save command — manually save code from last response."""
-        user_id = PILOBSTER_USER_ID
-        if not self._is_allowed(user_id):
-            return
-
         # Check if filename was provided
         if not context.args:
-            await update.message.reply_text(
+            message = (
                 "Usage: `/save filename.py`\n"
-                "This will save the last code block from my response.",
-                parse_mode="Markdown",
+                "This will save the last code block from my response."
             )
+            await update.message.reply_text(message, parse_mode="Markdown")
+            await self._send_to_tui(message, is_user=False)
             return
 
         filename = context.args[0]
 
         # Get recent history to find the last assistant message
-        history = await self.memory.get_history(user_id, limit=10)
+        history = await self.memory.get_history(limit=10)
 
         # Find the most recent assistant message with code
         last_code = None
@@ -274,31 +277,30 @@ class TelegramBot:
                     break
 
         if not last_code:
-            await update.message.reply_text(
+            message = (
                 "❌ No code blocks found in recent conversation. "
                 "Ask me to write some code first!"
             )
+            await update.message.reply_text(message)
+            await self._send_to_tui(message, is_user=False)
             return
 
         # Save the code
         try:
             filepath = await self.workspace.save_file(filename, last_code)
-            await update.message.reply_text(
-                f"💾 Saved `{filepath.name}` to workspace",
-                parse_mode="Markdown",
-            )
+            message = f"💾 Saved `{filepath.name}` to workspace"
+            await update.message.reply_text(message, parse_mode="Markdown")
+            await self._send_to_tui(message, is_user=False)
         except Exception as e:
-            await update.message.reply_text(f"❌ Error saving file: {e}")
+            message = f"❌ Error saving file: {e}"
+            await update.message.reply_text(message)
+            await self._send_to_tui(message, is_user=False)
 
     async def cmd_schedule(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /schedule command — manually create a cron job."""
-        user_id = PILOBSTER_USER_ID
-        if not self._is_allowed(user_id):
-            return
-
         # Check if arguments were provided
         if not context.args or len(context.args) < 6:
-            await update.message.reply_text(
+            message = (
                 "Usage: `/schedule <cron> <prompt>`\n\n"
                 "The prompt will be sent to me when the job triggers.\n\n"
                 "Cron format: `minute hour day month weekday`\n\n"
@@ -310,9 +312,10 @@ class TelegramBot:
                 "• `*/5 * * * *` — Every 5 minutes\n"
                 "• `0 * * * *` — Every hour\n"
                 "• `0 9 * * *` — Daily at 9am\n"
-                "• `0 9 * * 1` — Every Monday at 9am",
-                parse_mode="Markdown",
+                "• `0 9 * * 1` — Every Monday at 9am"
             )
+            await update.message.reply_text(message, parse_mode="Markdown")
+            await self._send_to_tui(message, is_user=False)
             return
 
         # Parse cron expression (first 5 args) and message (remaining args)
@@ -323,11 +326,12 @@ class TelegramBot:
         message = " ".join(message_parts)
 
         if not message:
-            await update.message.reply_text(
+            error_message = (
                 "❌ Prompt cannot be empty.\n"
-                "Usage: `/schedule <cron> <prompt>`",
-                parse_mode="Markdown",
+                "Usage: `/schedule <cron> <prompt>`"
             )
+            await update.message.reply_text(error_message, parse_mode="Markdown")
+            await self._send_to_tui(error_message, is_user=False)
             return
 
         # Create a task description from the message (truncate if needed)
@@ -335,29 +339,30 @@ class TelegramBot:
 
         # Validate and create the job
         try:
-            job_id = await self.scheduler.add_job(user_id, schedule, task, message)
-            await update.message.reply_text(
+            job_id = await self.scheduler.add_job(schedule, task, message)
+            success_message = (
                 f"✅ Scheduled job #{job_id}: {task}\n"
                 f"Schedule: `{schedule}`\n"
-                f"Message: {message}",
-                parse_mode="Markdown",
+                f"Message: {message}"
             )
+            await update.message.reply_text(success_message, parse_mode="Markdown")
+            await self._send_to_tui(success_message, is_user=False)
         except ValueError as e:
-            await update.message.reply_text(
+            error_message = (
                 f"❌ Invalid cron expression: {e}\n\n"
                 f"Cron format: `minute hour day month weekday`\n"
-                f"Example: `*/3 * * * *` (every 3 minutes)",
-                parse_mode="Markdown",
+                f"Example: `*/3 * * * *` (every 3 minutes)"
             )
+            await update.message.reply_text(error_message, parse_mode="Markdown")
+            await self._send_to_tui(error_message, is_user=False)
         except Exception as e:
-            await update.message.reply_text(f"❌ Error creating job: {e}")
+            error_message = f"❌ Error creating job: {e}"
+            await update.message.reply_text(error_message)
+            await self._send_to_tui(error_message, is_user=False)
 
     async def cmd_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /help command."""
-        if not self._is_allowed(PILOBSTER_USER_ID):
-            return
-
-        await update.message.reply_text(
+        message = (
             "🦞 *PiLobster Commands*\n\n"
             "/start — Welcome message\n"
             "/status — System status\n"
@@ -371,34 +376,31 @@ class TelegramBot:
             "*Natural Language:*\n"
             "• Ask me to write code — I'll save it to the workspace\n"
             "• Ask me to schedule something — I'll create a cron job\n"
-            "• Or just chat!",
-            parse_mode="Markdown",
+            "• Or just chat!"
         )
+        await update.message.reply_text(message, parse_mode="Markdown")
+        await self._send_to_tui(message, is_user=False)
 
     # --- Message Handler ---
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle incoming text messages — the main chat loop."""
-        user_id = PILOBSTER_USER_ID
-        if not self._is_allowed(user_id):
-            await update.message.reply_text("Sorry, you're not authorised.")
-            return
-
         # Store chat_id for later use (for sending messages from TUI)
         if self.chat_id is None:
             self.chat_id = update.effective_chat.id
             logger.info(f"Stored Telegram chat_id: {self.chat_id}")
 
         user_text = update.message.text
-        logger.info(f"Message from {user_id}: {user_text[:80]}...")
+        logger.info(f"Message received: {user_text[:80]}...")
+
+        # Send user message to TUI
+        await self._send_to_tui(f"📱 Telegram: {user_text}", is_user=True)
 
         # Store user message
-        await self.memory.add_message(user_id, "user", user_text)
+        await self.memory.add_message("user", user_text)
 
         # Get conversation history
-        history = await self.memory.get_history(
-            user_id, self.config.memory.max_history
-        )
+        history = await self.memory.get_history(self.config.memory.max_history)
 
         # Send typing indicator
         await update.message.chat.send_action("typing")
@@ -417,7 +419,7 @@ class TelegramBot:
         # Create valid jobs
         for job in cron_jobs:
             job_id = await self.scheduler.add_job(
-                user_id, job["schedule"], job["task"], job["message"]
+                job["schedule"], job["task"], job["message"]
             )
             await update.message.reply_text(
                 f"✅ Scheduled job #{job_id}: {job['task']}\n"
@@ -439,12 +441,14 @@ class TelegramBot:
         # Send the cleaned response
         clean = self.agent.clean_response(response)
         if clean:
+            # Send to TUI
+            await self._send_to_tui(clean, is_user=False)
             # Telegram has a 4096 char limit — split if needed
             for i in range(0, len(clean), 4000):
                 await update.message.reply_text(clean[i : i + 4000])
 
         # Store assistant response
-        await self.memory.add_message(user_id, "assistant", response)
+        await self.memory.add_message("assistant", response)
 
     # --- Bot Lifecycle ---
 
