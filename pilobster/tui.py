@@ -5,10 +5,8 @@ import logging
 from datetime import datetime
 from typing import Optional
 from textual.app import App, ComposeResult
-from textual.containers import ScrollableContainer
 from textual.widgets import Header, Static, Input, RichLog
 from textual.binding import Binding
-from rich.panel import Panel
 from rich.markdown import Markdown
 from rich.text import Text
 
@@ -27,50 +25,28 @@ class PiLobsterTUI(App):
     CSS = """
     Screen {
         background: $background;
-        overflow-x: hidden;
-    }
-
-    #chat_container {
-        height: 1fr;
-        border: solid $primary;
-        background: $surface;
-        width: 100%;
-        overflow-x: hidden;
     }
 
     #chat_log {
         height: 1fr;
         background: $surface;
-        border: none;
-        padding: 0 1;
-        width: 100%;
-        overflow-x: auto;
-        overflow-y: auto;
+        padding: 1 2;
+        border-top: solid $primary;
+        border-bottom: solid $primary;
     }
 
     #user_input {
-        dock: bottom;
-        border: solid $primary;
-        height: 3;
-        margin: 0 0;
-        width: 100%;
+        height: 1;
+        background: $surface;
+        border: none;
+        padding: 0 2;
     }
 
-    .user-message {
-        background: $boost;
-        border: solid $primary;
-        margin: 1 0;
-    }
-
-    .assistant-message {
-        background: $panel;
-        border: solid $accent;
-        margin: 1 0;
-    }
-
-    .status-message {
+    #shortcuts {
+        height: 1;
+        background: $surface-darken-1;
         color: $text-muted;
-        margin: 1 0;
+        padding: 0 2;
     }
     """
 
@@ -104,53 +80,36 @@ class PiLobsterTUI(App):
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
         yield Header(show_clock=True)
-        with ScrollableContainer(id="chat_container"):
-            yield RichLog(id="chat_log", wrap=True, markup=True, highlight=True)
-        yield Input(placeholder="Type your message...", id="user_input")
-        yield Footer()
+        yield RichLog(id="chat_log", wrap=True, markup=True, highlight=True)
+        yield Input(placeholder="> ", id="user_input")
+        yield Static("? help | ^L clear | ^S status | ^C quit", id="shortcuts")
 
     async def on_mount(self) -> None:
         """Called when app starts."""
         chat_log = self.query_one("#chat_log", RichLog)
 
         # Welcome message
-        welcome = Panel(
-            Markdown(
-                f"""# Welcome to PiLobster! 🦞\n\nI'm your local AI assistant running on **{self.config.ollama.model}**.\n\n**Commands:**\n- `/quit` - Exit PiLobster\n- `/clear` - Clear chat history\n- `/status` - Show system status\n- `/help` - Show help\n\n**Keyboard Shortcuts:**\n- `Ctrl+L` - Clear history\n- `Ctrl+S` - Status\n- `Ctrl+C` - Quit\n\nJust start typing to chat with me!"""
-            ),
-            title="🦞 PiLobster",
-            border_style="green",
-            width=76,
-            expand=False,
-        )
-        chat_log.write(welcome)
+        chat_log.write(Text("🦞 Welcome to PiLobster!", style="bold green"))
+        chat_log.write(Text(f"  Running {self.config.ollama.model}", style="dim"))
+        chat_log.write("")
 
         # Load conversation history
         history = await self.memory.get_history(limit=20)
         self.last_message_count = len(history)
         if history:
-            chat_log.write("\n")
-            chat_log.write(
-                Text("─── Previous Conversation ───", style="dim italic"),
-                shrink=True,
-            )
+            chat_log.write(Text("── Previous Conversation ──", style="dim"))
             for msg in history:
-                role = "You" if msg["role"] == "user" else "PiLobster 🦞"
-                border_style = "blue" if msg["role"] == "user" else "magenta"
                 content = msg["content"]
 
                 # Clean response for display
                 if msg["role"] == "assistant":
                     content = self.agent.clean_response(content)
 
-                panel = Panel(
-                    Markdown(content) if content.strip() else Text("(empty)", style="dim"),
-                    title=f"[bold]{role}[/bold]",
-                    border_style=border_style,
-                    width=76,
-                    expand=False,
-                )
-                chat_log.write(panel)
+                if msg["role"] == "user":
+                    chat_log.write(Text(f"> {content}", style="cyan"))
+                else:
+                    chat_log.write(Markdown(f"• {content}"))
+                chat_log.write("")
 
         # Focus input
         self.query_one("#user_input", Input).focus()
@@ -319,10 +278,19 @@ class PiLobsterTUI(App):
 
     async def display_message(self, role: str, content: str):
         """Display a message in the chat log."""
-        title = "You" if role == "user" else "PiLobster 🦞"
-        border_style = "blue" if role == "user" else "magenta"
+        chat_log = self.query_one("#chat_log", RichLog)
 
-        await self.display_message_panel(title, content, border_style)
+        if role == "user":
+            # User message - show with >
+            chat_log.write(Text(f"> {content}", style="cyan"))
+        else:
+            # Assistant message - show with •
+            if content.strip():
+                chat_log.write(Markdown(f"• {content}"))
+            else:
+                chat_log.write(Text("• (empty)", style="dim"))
+
+        chat_log.write("")  # Add blank line for spacing
 
         # Increment message count to prevent duplicates from sync
         self.last_message_count += 1
@@ -385,16 +353,21 @@ class PiLobsterTUI(App):
             logger.error(f"Error checking for new messages: {e}")
 
     async def display_message_panel(self, role: str, content: str, border_style: str):
-        """Display a message panel in the chat log."""
+        """Display a message in the chat log with simple formatting."""
         chat_log = self.query_one("#chat_log", RichLog)
-        panel = Panel(
-            Markdown(content) if content.strip() else Text("(empty)", style="dim"),
-            title=f"[bold]{role}[/bold]",
-            border_style=border_style,
-            width=76,  # Fit within 80 char terminal (4 chars for padding/borders)
-            expand=False,
-        )
-        chat_log.write(panel)
+
+        # Determine if this is a user or assistant message based on role
+        if role in ["You", "📱 Telegram"]:
+            # User message - show with >
+            chat_log.write(Text(f"> {content}", style="cyan"))
+        else:
+            # Assistant message - show with •
+            if content.strip():
+                chat_log.write(Markdown(f"• {content}"))
+            else:
+                chat_log.write(Text("• (empty)", style="dim"))
+
+        chat_log.write("")  # Add blank line for spacing
 
     async def handle_scheduler_callback(self, message: str):
         """Callback for scheduler - displays cron message in TUI and processes it.
@@ -436,24 +409,23 @@ class PiLobsterTUI(App):
             jobs = await self.scheduler.list_jobs()
             files = self.workspace.list_files()
 
-            status_text = f"""**Model:** `{self.config.ollama.model}`
+            chat_log = self.query_one("#chat_log", RichLog)
+            chat_log.write(Text("🦞 System Status", style="bold green"))
+            chat_log.write(Text(f"  Model: {self.config.ollama.model}"))
+            chat_log.write(Text(f"  Host: {self.config.ollama.host}"))
+            chat_log.write(Text(f"  Context: {self.config.ollama.context_length} tokens"))
+            chat_log.write(Text(f"  Scheduled jobs: {len(jobs)}"))
+            chat_log.write(Text(f"  Workspace files: {len(files)}"))
+            chat_log.write("")
+
+            # Send to Telegram
+            if self.telegram_callback:
+                try:
+                    status_text = f"""**Model:** `{self.config.ollama.model}`
 **Host:** `{self.config.ollama.host}`
 **Context:** `{self.config.ollama.context_length}` tokens
 **Scheduled jobs:** `{len(jobs)}`
 **Workspace files:** `{len(files)}`"""
-
-            chat_log = self.query_one("#chat_log", RichLog)
-            panel = Panel(
-                Markdown(status_text),
-                title="[bold]🦞 System Status[/bold]",
-                border_style="green",
-                width=76,
-                expand=False,
-            )
-            chat_log.write(panel)
-            # Send to Telegram
-            if self.telegram_callback:
-                try:
                     await self.telegram_callback(f"🦞 System Status\n\n{status_text}")
                 except Exception as e:
                     logger.error(f"Failed to send message to Telegram: {e}")
