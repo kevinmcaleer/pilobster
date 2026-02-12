@@ -64,14 +64,14 @@ python -m pilobster --mode tui
 # Both modes (default) - conversations sync between Telegram and TUI
 python -m pilobster --mode both
 
-# Sync with specific Telegram user (find your ID with @userinfobot)
-python -m pilobster --mode both --user-id YOUR_TELEGRAM_ID
+# Telegram only
+python -m pilobster --mode telegram
 ```
 
 **Conversation Sync in "Both" Mode:**
 When running both Telegram and TUI:
-- Use the same `--user-id` for both interfaces to share conversation history
-- Messages sent in TUI appear in Telegram (and vice versa)
+- All users share the same conversation (single-user mode)
+- Messages sent in TUI appear in Telegram and vice versa
 - Both interfaces sync automatically every 2 seconds
 - Use `/quit` in TUI to exit cleanly
 

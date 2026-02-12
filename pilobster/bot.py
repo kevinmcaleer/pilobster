@@ -17,6 +17,10 @@ from .memory import Memory
 from .scheduler import Scheduler
 from .workspace import Workspace
 
+# Single user mode - imported from __main__
+# All Telegram users share the same conversation
+PILOBSTER_USER_ID = 1
+
 logger = logging.getLogger("pilobster.telegram")
 
 
@@ -39,7 +43,11 @@ class TelegramBot:
         self.app: Optional[Application] = None
 
     def _is_allowed(self, user_id: int) -> bool:
-        """Check if a user is allowed to use the bot."""
+        """Check if a user is allowed to use the bot.
+
+        In single-user mode, everyone shares the same conversation.
+        You can still restrict access using allowed_users in config.
+        """
         allowed = self.config.telegram.allowed_users
         return not allowed or user_id in allowed
 
@@ -48,11 +56,16 @@ class TelegramBot:
 
         This processes the message as if the user sent it, so the AI
         generates a response instead of just echoing the message.
+
+        Note: user_id parameter is kept for compatibility but we use PILOBSTER_USER_ID.
         """
         if not self.app:
             return
 
-        logger.info(f"Cron job triggered for user {user_id}: {message}")
+        logger.info(f"Cron job triggered: {message}")
+
+        # Use the shared user ID
+        user_id = PILOBSTER_USER_ID
 
         # Store the prompt in history as a user message
         await self.memory.add_message(user_id, "user", message)
@@ -114,7 +127,7 @@ class TelegramBot:
 
     async def cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /start command."""
-        if not self._is_allowed(update.effective_user.id):
+        if not self._is_allowed(PILOBSTER_USER_ID):
             await update.message.reply_text("Sorry, you're not authorised to use this bot.")
             return
 
@@ -133,10 +146,10 @@ class TelegramBot:
 
     async def cmd_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /status command."""
-        if not self._is_allowed(update.effective_user.id):
+        if not self._is_allowed(PILOBSTER_USER_ID):
             return
 
-        jobs = await self.scheduler.list_jobs(update.effective_user.id)
+        jobs = await self.scheduler.list_jobs(PILOBSTER_USER_ID)
         files = self.workspace.list_files()
 
         status = (
@@ -151,10 +164,10 @@ class TelegramBot:
 
     async def cmd_jobs(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /jobs command — list scheduled cron jobs."""
-        if not self._is_allowed(update.effective_user.id):
+        if not self._is_allowed(PILOBSTER_USER_ID):
             return
 
-        jobs = await self.scheduler.list_jobs(update.effective_user.id)
+        jobs = await self.scheduler.list_jobs(PILOBSTER_USER_ID)
         if not jobs:
             await update.message.reply_text("No scheduled jobs. Ask me to schedule something!")
             return
@@ -167,7 +180,7 @@ class TelegramBot:
 
     async def cmd_cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /cancel <id> command — cancel a scheduled job."""
-        if not self._is_allowed(update.effective_user.id):
+        if not self._is_allowed(PILOBSTER_USER_ID):
             return
 
         if not context.args:
@@ -188,7 +201,7 @@ class TelegramBot:
 
     async def cmd_workspace(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /workspace command — list files in workspace."""
-        if not self._is_allowed(update.effective_user.id):
+        if not self._is_allowed(PILOBSTER_USER_ID):
             return
 
         files = self.workspace.list_files()
@@ -205,15 +218,15 @@ class TelegramBot:
 
     async def cmd_clear(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /clear command — clear conversation history."""
-        if not self._is_allowed(update.effective_user.id):
+        if not self._is_allowed(PILOBSTER_USER_ID):
             return
 
-        await self.memory.clear_history(update.effective_user.id)
+        await self.memory.clear_history(PILOBSTER_USER_ID)
         await update.message.reply_text("🧹 Conversation history cleared.")
 
     async def cmd_save(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /save command — manually save code from last response."""
-        user_id = update.effective_user.id
+        user_id = PILOBSTER_USER_ID
         if not self._is_allowed(user_id):
             return
 
@@ -259,7 +272,7 @@ class TelegramBot:
 
     async def cmd_schedule(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /schedule command — manually create a cron job."""
-        user_id = update.effective_user.id
+        user_id = PILOBSTER_USER_ID
         if not self._is_allowed(user_id):
             return
 
@@ -321,7 +334,7 @@ class TelegramBot:
 
     async def cmd_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /help command."""
-        if not self._is_allowed(update.effective_user.id):
+        if not self._is_allowed(PILOBSTER_USER_ID):
             return
 
         await update.message.reply_text(
@@ -346,7 +359,7 @@ class TelegramBot:
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle incoming text messages — the main chat loop."""
-        user_id = update.effective_user.id
+        user_id = PILOBSTER_USER_ID
         if not self._is_allowed(user_id):
             await update.message.reply_text("Sorry, you're not authorised.")
             return

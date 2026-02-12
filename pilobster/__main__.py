@@ -11,6 +11,9 @@ from .agent import Agent
 from .scheduler import Scheduler
 from .workspace import Workspace
 
+# Single user mode - all conversations use this ID
+PILOBSTER_USER_ID = 1
+
 # Logger will be configured in main() based on mode
 logger = logging.getLogger("pilobster")
 
@@ -35,12 +38,6 @@ def parse_args():
         choices=["telegram", "tui", "both"],
         default="both",
         help="Run mode: telegram bot, terminal UI, or both (default: both)",
-    )
-    parser.add_argument(
-        "--user-id",
-        type=int,
-        default=None,
-        help="User ID for conversations (default: auto-detect from Telegram in 'both' mode, 0 for TUI-only)",
     )
     parser.add_argument(
         "--config",
@@ -86,7 +83,7 @@ async def run_telegram_bot(config, agent, memory, scheduler, workspace, set_call
     return bot
 
 
-async def run_tui(config, agent, memory, scheduler, workspace, user_id, set_callback=True):
+async def run_tui(config, agent, memory, scheduler, workspace, set_callback=True):
     """Run the Terminal UI.
 
     Args:
@@ -97,7 +94,7 @@ async def run_tui(config, agent, memory, scheduler, workspace, user_id, set_call
 
     logger.info("🦞 Starting Terminal UI...")
 
-    app = PiLobsterTUI(config, agent, memory, scheduler, workspace, user_id)
+    app = PiLobsterTUI(config, agent, memory, scheduler, workspace, PILOBSTER_USER_ID)
 
     # Set scheduler callback for TUI only if requested
     if set_callback:
@@ -158,24 +155,11 @@ async def main():
             datefmt="%Y-%m-%d %H:%M:%S",
         )
 
-    # Determine user_id
-    if args.user_id is None:
-        if args.mode == "tui":
-            args.user_id = 0  # Default for TUI-only
-        else:
-            args.user_id = 0  # Default for telegram/both
-
     print(BANNER)
     print(f"Mode: {args.mode}")
     if args.mode in ["tui", "both"]:
-        print(f"TUI User ID: {args.user_id}")
         print(f"Logs: pilobster.log")
-        if args.mode == "both":
-            print(f"\n💡 Tip: To sync TUI with a specific Telegram user,")
-            print(f"   use --user-id <telegram_user_id>")
-            print(f"   Find your Telegram ID with @userinfobot\n")
-        else:
-            print()
+        print()
 
     # Load config
     try:
@@ -225,7 +209,7 @@ async def main():
     elif args.mode == "tui":
         # TUI only - callback set automatically
         task = asyncio.create_task(
-            run_tui(config, agent, memory, scheduler, workspace, args.user_id, set_callback=True)
+            run_tui(config, agent, memory, scheduler, workspace, set_callback=True)
         )
         tasks.append(task)
 
@@ -237,7 +221,7 @@ async def main():
 
         # Create bot and tui instances
         bot = TelegramBot(config, agent, memory, scheduler, workspace)
-        tui_app = PiLobsterTUI(config, agent, memory, scheduler, workspace, args.user_id)
+        tui_app = PiLobsterTUI(config, agent, memory, scheduler, workspace, PILOBSTER_USER_ID)
 
         # Set up both callbacks for scheduler
         scheduler.set_send_callback(bot._send_message)

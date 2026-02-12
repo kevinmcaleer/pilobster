@@ -99,7 +99,7 @@ class PiLobsterTUI(App):
         self.user_id = user_id
         self.processing = False
         self.title = "🦞 PiLobster"
-        self.sub_title = f"Local AI Assistant (user_id={user_id})"
+        self.sub_title = "Local AI Assistant"
         self.last_message_count = 0  # Track messages for sync
 
     def compose(self) -> ComposeResult:
