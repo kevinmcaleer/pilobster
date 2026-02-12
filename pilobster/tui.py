@@ -33,6 +33,9 @@ class PiLobsterTUI(App):
         padding: 1 2;
         border-top: solid $primary;
         border-bottom: solid $primary;
+        overflow-x: hidden;
+        overflow-y: auto;
+        scrollbar-size: 0 0;
     }
 
     #user_input {
