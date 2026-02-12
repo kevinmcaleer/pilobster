@@ -70,9 +70,9 @@ python -m pilobster --mode telegram
 
 **About "Both" Mode:**
 When running both Telegram and TUI:
-- Each interface has its own separate conversation history
-- Telegram messages won't appear in TUI and vice versa
-- Both share the same AI model, workspace, and scheduler
+- Both interfaces show the same shared conversation
+- Messages typed in TUI appear in Telegram and vice versa
+- Both sync automatically every 2 seconds
 - Use `/quit` in TUI to exit cleanly
 
 ### TUI Commands & Shortcuts
@@ -101,7 +101,7 @@ The Terminal UI supports all the same features as the Telegram bot:
 
 ### When to Use Which Mode
 
-- **Both (`--mode both`)** *(default)*: Run both interfaces simultaneously with separate conversations
+- **Both (`--mode both`)** *(default)*: Run both interfaces with synced conversations - chat from your phone or terminal
 - **TUI only (`--mode tui`)**: Direct terminal access, no Telegram needed
 - **Telegram only (`--mode telegram`)**: Access your AI only from your phone/Telegram
 

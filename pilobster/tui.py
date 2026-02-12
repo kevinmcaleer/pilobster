@@ -18,9 +18,6 @@ from .memory import Memory
 from .scheduler import Scheduler
 from .workspace import Workspace
 
-# TUI user ID - separate from Telegram (which uses user_id=1)
-PILOBSTER_TUI_USER_ID = 2
-
 logger = logging.getLogger("pilobster.tui")
 
 
@@ -91,7 +88,7 @@ class PiLobsterTUI(App):
         memory: Memory,
         scheduler: Scheduler,
         workspace: Workspace,
-        user_id: int = PILOBSTER_TUI_USER_ID,
+        user_id: int = 1,
     ):
         super().__init__()
         self.config = config
@@ -103,6 +100,8 @@ class PiLobsterTUI(App):
         self.processing = False
         self.title = "🦞 PiLobster"
         self.sub_title = "Local AI Assistant"
+        self.telegram_callback = None  # Callback to send messages to Telegram
+        self.last_message_count = 0  # Track messages for sync
 
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
@@ -119,9 +118,9 @@ class PiLobsterTUI(App):
         # Welcome message
         welcome = Panel(
             Markdown(
-                f"""# Welcome to PiLobster Terminal UI! 🦞\n\nI'm your local AI assistant running on **{self.config.ollama.model}**.\n\n**Note:** This TUI has its own conversation history separate from Telegram.\n\n**Commands:**\n- `/quit` - Exit PiLobster\n- `/clear` - Clear chat history\n- `/status` - Show system status\n- `/help` - Show help\n\n**Keyboard Shortcuts:**\n- `Ctrl+L` - Clear history\n- `Ctrl+S` - Status\n- `Ctrl+C` - Quit\n\nJust start typing to chat with me!"""
+                f"""# Welcome to PiLobster! 🦞\n\nI'm your local AI assistant running on **{self.config.ollama.model}**.\n\n**Commands:**\n- `/quit` - Exit PiLobster\n- `/clear` - Clear chat history\n- `/status` - Show system status\n- `/help` - Show help\n\n**Keyboard Shortcuts:**\n- `Ctrl+L` - Clear history\n- `Ctrl+S` - Status\n- `Ctrl+C` - Quit\n\nJust start typing to chat with me!"""
             ),
-            title="🦞 PiLobster Terminal UI",
+            title="🦞 PiLobster",
             border_style="green",
             width=76,
             expand=False,
@@ -130,6 +129,7 @@ class PiLobsterTUI(App):
 
         # Load conversation history
         history = await self.memory.get_history(self.user_id, limit=20)
+        self.last_message_count = len(history)
         if history:
             chat_log.write("\n")
             chat_log.write(
@@ -156,6 +156,9 @@ class PiLobsterTUI(App):
 
         # Focus input
         self.query_one("#user_input", Input).focus()
+
+        # Start background check for new messages from Telegram (every 2 seconds)
+        self.set_interval(2.0, self.check_for_new_messages)
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle user message submission."""
@@ -292,6 +295,17 @@ class PiLobsterTUI(App):
             # Store assistant response
             await self.memory.add_message(self.user_id, "assistant", response)
 
+            # Send to Telegram if callback is set (in "both" mode)
+            if self.telegram_callback:
+                try:
+                    # Send the user message with a prefix to show it came from TUI
+                    await self.telegram_callback(f"💻 TUI: {user_text}")
+                    # Send the AI response
+                    if clean:
+                        await self.telegram_callback(clean)
+                except Exception as e:
+                    logger.error(f"Failed to send message to Telegram: {e}")
+
         except Exception as e:
             logger.error(f"Error processing message: {e}")
             await self.display_status_message(f"Error: {e}", emoji="❌")
@@ -306,10 +320,52 @@ class PiLobsterTUI(App):
 
         await self.display_message_panel(title, content, border_style)
 
+        # Increment message count to prevent duplicates from sync
+        self.last_message_count += 1
+
     async def display_status_message(self, message: str, emoji: str = "ℹ️"):
         """Display a system status message."""
         chat_log = self.query_one("#chat_log", RichLog)
         chat_log.write(Text(f"{emoji}  {message}", style="dim italic"), shrink=True)
+
+    def set_telegram_callback(self, callback):
+        """Set callback to send messages to Telegram.
+
+        Callback should accept (message: str) and send it to Telegram.
+        """
+        self.telegram_callback = callback
+
+    async def check_for_new_messages(self):
+        """Check for new messages from Telegram and display them.
+
+        This allows TUI to show messages sent via Telegram in real-time.
+        """
+        if self.processing:
+            return  # Don't check while processing our own message
+
+        try:
+            # Get current message count
+            history = await self.memory.get_history(self.user_id, limit=100)
+            current_count = len(history)
+
+            # If there are new messages, display them
+            if current_count > self.last_message_count:
+                # Get only the new messages
+                new_messages = history[self.last_message_count:]
+                for msg in new_messages:
+                    role = "You" if msg["role"] == "user" else "PiLobster 🦞"
+                    border_style = "blue" if msg["role"] == "user" else "magenta"
+                    content = msg["content"]
+
+                    # Clean response for display
+                    if msg["role"] == "assistant":
+                        content = self.agent.clean_response(content)
+
+                    await self.display_message_panel(role, content, border_style)
+
+                self.last_message_count = current_count
+        except Exception as e:
+            logger.error(f"Error checking for new messages: {e}")
 
     async def display_message_panel(self, role: str, content: str, border_style: str):
         """Display a message panel in the chat log."""

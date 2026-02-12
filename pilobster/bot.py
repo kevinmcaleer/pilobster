@@ -41,6 +41,7 @@ class TelegramBot:
         self.scheduler = scheduler
         self.workspace = workspace
         self.app: Optional[Application] = None
+        self.chat_id: Optional[int] = None  # Telegram chat ID for sending messages
 
     def _is_allowed(self, user_id: int) -> bool:
         """Check if a user is allowed to use the bot.
@@ -50,6 +51,25 @@ class TelegramBot:
         """
         allowed = self.config.telegram.allowed_users
         return not allowed or user_id in allowed
+
+    async def _send_to_telegram(self, message: str):
+        """Send a message to Telegram without processing it through the agent.
+
+        This is used by TUI to display messages in Telegram (in "both" mode).
+        """
+        if not self.app or self.chat_id is None:
+            logger.debug("Cannot send to Telegram: app not initialized or chat_id not set")
+            return
+
+        try:
+            # Send message to Telegram, splitting if too long
+            for i in range(0, len(message), 4000):
+                await self.app.bot.send_message(
+                    chat_id=self.chat_id,
+                    text=message[i : i + 4000]
+                )
+        except Exception as e:
+            logger.error(f"Failed to send message to Telegram: {e}")
 
     async def _send_message(self, user_id: int, message: str):
         """Send a message to a user. Used as the scheduler callback.
@@ -363,6 +383,11 @@ class TelegramBot:
         if not self._is_allowed(user_id):
             await update.message.reply_text("Sorry, you're not authorised.")
             return
+
+        # Store chat_id for later use (for sending messages from TUI)
+        if self.chat_id is None:
+            self.chat_id = update.effective_chat.id
+            logger.info(f"Stored Telegram chat_id: {self.chat_id}")
 
         user_text = update.message.text
         logger.info(f"Message from {user_id}: {user_text[:80]}...")
