@@ -151,11 +151,31 @@ In Telegram, you can use these commands:
 - `/start` — Welcome message
 - `/status` — Show system status (model, uptime, jobs)
 - `/jobs` — List scheduled cron jobs
+- `/schedule <cron> <message>` — Manually create a cron job
 - `/cancel <id>` — Cancel a scheduled job
 - `/workspace` — List files in the workspace
 - `/save <filename>` — Manually save the last code block
 - `/clear` — Clear chat history
 - `/help` — Show available commands
+
+### Creating Scheduled Jobs
+
+You can ask the bot naturally ("Remind me every morning at 9am") or use the `/schedule` command for precise control:
+
+```
+/schedule */5 * * * * Check the temperature
+/schedule 0 9 * * * Good morning!
+/schedule 30 14 * * 1-5 Afternoon standup reminder
+```
+
+Cron format: `minute hour day month weekday`
+
+Common patterns:
+- `*/5 * * * *` — Every 5 minutes
+- `0 * * * *` — Every hour
+- `0 9 * * *` — Daily at 9am
+- `0 9 * * 1` — Every Monday at 9am
+- `0 9 * * 1-5` — Weekdays at 9am
 
 Or just chat naturally:
 - "Write a Python script that monitors CPU temperature"

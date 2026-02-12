@@ -62,6 +62,7 @@ class TelegramBot:
             "Just send me a message to chat, or use:\n"
             "/status — System status\n"
             "/jobs — List scheduled tasks\n"
+            "/schedule — Create a cron job\n"
             "/workspace — List generated files\n"
             "/clear — Clear conversation history\n"
             "/help — Show all commands",
@@ -194,6 +195,67 @@ class TelegramBot:
         except Exception as e:
             await update.message.reply_text(f"❌ Error saving file: {e}")
 
+    async def cmd_schedule(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /schedule command — manually create a cron job."""
+        user_id = update.effective_user.id
+        if not self._is_allowed(user_id):
+            return
+
+        # Check if arguments were provided
+        if not context.args or len(context.args) < 6:
+            await update.message.reply_text(
+                "Usage: `/schedule <cron> <message>`\n\n"
+                "Cron format: `minute hour day month weekday`\n\n"
+                "Examples:\n"
+                "`/schedule */3 * * * * Tell me a joke`\n"
+                "`/schedule 0 9 * * * Good morning!`\n"
+                "`/schedule 30 14 * * 1-5 Afternoon reminder`\n\n"
+                "Common patterns:\n"
+                "• `*/5 * * * *` — Every 5 minutes\n"
+                "• `0 * * * *` — Every hour\n"
+                "• `0 9 * * *` — Daily at 9am\n"
+                "• `0 9 * * 1` — Every Monday at 9am",
+                parse_mode="Markdown",
+            )
+            return
+
+        # Parse cron expression (first 5 args) and message (remaining args)
+        cron_parts = context.args[:5]
+        message_parts = context.args[5:]
+
+        schedule = " ".join(cron_parts)
+        message = " ".join(message_parts)
+
+        if not message:
+            await update.message.reply_text(
+                "❌ Message cannot be empty.\n"
+                "Usage: `/schedule <cron> <message>`",
+                parse_mode="Markdown",
+            )
+            return
+
+        # Create a task description from the message (truncate if needed)
+        task = message[:50] + "..." if len(message) > 50 else message
+
+        # Validate and create the job
+        try:
+            job_id = await self.scheduler.add_job(user_id, schedule, task, message)
+            await update.message.reply_text(
+                f"✅ Scheduled job #{job_id}: {task}\n"
+                f"Schedule: `{schedule}`\n"
+                f"Message: {message}",
+                parse_mode="Markdown",
+            )
+        except ValueError as e:
+            await update.message.reply_text(
+                f"❌ Invalid cron expression: {e}\n\n"
+                f"Cron format: `minute hour day month weekday`\n"
+                f"Example: `*/3 * * * *` (every 3 minutes)",
+                parse_mode="Markdown",
+            )
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error creating job: {e}")
+
     async def cmd_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /help command."""
         if not self._is_allowed(update.effective_user.id):
@@ -204,6 +266,7 @@ class TelegramBot:
             "/start — Welcome message\n"
             "/status — System status\n"
             "/jobs — List scheduled tasks\n"
+            "/schedule <cron> <msg> — Create a cron job\n"
             "/cancel <id> — Cancel a task\n"
             "/workspace — List generated files\n"
             "/save <filename> — Save last code block\n"
@@ -290,6 +353,7 @@ class TelegramBot:
             BotCommand("start", "Welcome message"),
             BotCommand("status", "System status"),
             BotCommand("jobs", "List scheduled tasks"),
+            BotCommand("schedule", "Create a cron job"),
             BotCommand("cancel", "Cancel a scheduled task"),
             BotCommand("workspace", "List generated files"),
             BotCommand("save", "Save last code block"),
@@ -312,6 +376,7 @@ class TelegramBot:
         self.app.add_handler(CommandHandler("start", self.cmd_start))
         self.app.add_handler(CommandHandler("status", self.cmd_status))
         self.app.add_handler(CommandHandler("jobs", self.cmd_jobs))
+        self.app.add_handler(CommandHandler("schedule", self.cmd_schedule))
         self.app.add_handler(CommandHandler("cancel", self.cmd_cancel))
         self.app.add_handler(CommandHandler("workspace", self.cmd_workspace))
         self.app.add_handler(CommandHandler("save", self.cmd_save))
