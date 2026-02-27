@@ -7,6 +7,14 @@ telegram:
                                       # Leave empty to allow anyone (not recommended for production)
                                       # Find your ID by messaging @userinfobot on Telegram
 
+discord:
+  token: "YOUR_DISCORD_BOT_TOKEN"    # Get this from https://discord.com/developers/applications
+  prefix: "!"                         # Command prefix (e.g. !help, !status)
+  allowed_users: []                   # List of Discord user IDs allowed to use the bot
+                                      # Leave empty to allow anyone
+  allowed_channels: []                # List of Discord channel IDs where the bot responds
+                                      # Leave empty to allow all channels
+
 ollama:
   host: "http://localhost:11434"      # Ollama server address
   model: "tinyllama"                  # Model to use
