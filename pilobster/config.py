@@ -13,6 +13,14 @@ class TelegramConfig:
 
 
 @dataclass
+class DiscordConfig:
+    token: str = ""
+    prefix: str = "!"
+    allowed_users: List[int] = field(default_factory=list)
+    allowed_channels: List[int] = field(default_factory=list)
+
+
+@dataclass
 class OllamaConfig:
     host: str = "http://localhost:11434"
     model: str = "tinyllama"
@@ -40,6 +48,7 @@ class MemoryConfig:
 @dataclass
 class Config:
     telegram: TelegramConfig = field(default_factory=TelegramConfig)
+    discord: DiscordConfig = field(default_factory=DiscordConfig)
     ollama: OllamaConfig = field(default_factory=OllamaConfig)
     workspace: WorkspaceConfig = field(default_factory=WorkspaceConfig)
     scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
@@ -63,6 +72,8 @@ def load_config(path: str = "config.yaml") -> Config:
 
     if "telegram" in raw:
         config.telegram = TelegramConfig(**raw["telegram"])
+    if "discord" in raw:
+        config.discord = DiscordConfig(**raw["discord"])
     if "ollama" in raw:
         config.ollama = OllamaConfig(**raw["ollama"])
     if "workspace" in raw:

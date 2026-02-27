@@ -34,9 +34,9 @@ def parse_args():
     )
     parser.add_argument(
         "--mode",
-        choices=["telegram", "tui", "both"],
+        choices=["telegram", "discord", "tui", "both"],
         default="both",
-        help="Run mode: telegram bot, terminal UI, or both (default: both)",
+        help="Run mode: telegram, discord, tui, or both (default: both — Telegram + TUI)",
     )
     parser.add_argument(
         "--config",
@@ -78,6 +78,32 @@ async def run_telegram_bot(config, agent, memory, scheduler, workspace, set_call
         await app.updater.stop()
         await app.stop()
         await app.shutdown()
+
+    return bot
+
+
+async def run_discord_bot(config, agent, memory, scheduler, workspace, set_callback=True):
+    """Run the Discord bot.
+
+    Args:
+        set_callback: If True, sets the scheduler callback. Set to False in combined modes
+                      where callbacks are managed centrally.
+    """
+    from .discord_bot import DiscordBot
+
+    bot = DiscordBot(config, agent, memory, scheduler, workspace)
+
+    if set_callback:
+        scheduler.set_send_callback(bot._send_message)
+
+    logger.info("🦞 Discord bot is starting...")
+
+    try:
+        await bot.start()
+    except (KeyboardInterrupt, SystemExit):
+        pass
+    finally:
+        await bot.close()
 
     return bot
 
@@ -174,6 +200,12 @@ async def main():
             logger.error("Set your token or use --mode tui to skip Telegram")
             sys.exit(1)
 
+    if args.mode == "discord":
+        if config.discord.token == "YOUR_DISCORD_BOT_TOKEN" or not config.discord.token:
+            logger.error("Discord mode requires a valid bot token in config.yaml")
+            logger.error("Set your token or use --mode tui to skip Discord")
+            sys.exit(1)
+
     # Initialise memory
     memory = Memory(config.memory.database)
     await memory.connect()
@@ -202,6 +234,13 @@ async def main():
         # Telegram only - callback set automatically
         task = asyncio.create_task(
             run_telegram_bot(config, agent, memory, scheduler, workspace, set_callback=True)
+        )
+        tasks.append(task)
+
+    elif args.mode == "discord":
+        # Discord only - callback set automatically
+        task = asyncio.create_task(
+            run_discord_bot(config, agent, memory, scheduler, workspace, set_callback=True)
         )
         tasks.append(task)
 
