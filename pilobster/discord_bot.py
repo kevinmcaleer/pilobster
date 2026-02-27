@@ -474,7 +474,6 @@ class DiscordBot:
 
     async def start(self):
         """Start the Discord bot."""
-        self.scheduler.set_send_callback(self._send_message)
         logger.info("Starting Discord bot...")
         await self.bot.start(self.config.discord.token)
 
